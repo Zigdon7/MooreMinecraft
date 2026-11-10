@@ -1,0 +1,14 @@
+PASS verified first install preserves unrelated files
+PASS manual old versions are backed up by mod ID
+PASS checksum mismatch makes no mods changes
+PASS wrong Fabric mod ID is rejected
+PASS path traversal and executable assets rejected
+PASS duplicate mod IDs and bad hashes rejected
+PASS unmanaged filename collision is preserved
+PASS failed upgrade restores files and installed state
+PASS changed managed JAR refuses update
+PASS interrupted transaction recovery restores prior pack
+PASS rollback refuses locally modified new files
+PASS non HTTPS or non GitHub manifest sources rejected
+PASS linked mods directory is refused
+RESULT: 13 passed; 0 failed

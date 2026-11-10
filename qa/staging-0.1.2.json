@@ -1,0 +1,13 @@
+{
+  "pluginVersion": "0.1.2-dev",
+  "javaPort": 25566,
+  "defaultGamemode": "Survival",
+  "forceGamemodeOnLogin": true,
+  "onlineAuthentication": true,
+  "enabledDimensions": [
+    "overworld"
+  ],
+  "startupLoaded": true,
+  "startupErrorLines": 0,
+  "productionChanged": false
+}
