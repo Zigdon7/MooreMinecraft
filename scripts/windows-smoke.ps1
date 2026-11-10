@@ -59,11 +59,16 @@ foreach ($case in $cases) {
    $expanded = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
    @($expanded | ForEach-Object { [pscustomobject]@{name=$_.Current.Name; enabled=$_.Current.IsEnabled; offscreen=$_.Current.IsOffscreen; bounds=$_.Current.BoundingRectangle.ToString()} }) | ConvertTo-Json -Depth 3 | Set-Content (Join-Path $evidence "expanded-uia.json")
    $names = @()
+   $sameFocus = 0; $lastFocus = ""
    for ($i=0; $i -lt 16; $i++) {
     [System.Windows.Forms.SendKeys]::SendWait("{TAB}")
     Start-Sleep -Milliseconds 80
     $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
-    if ($focused) { $names += $focused.Current.Name; "TAB $i -> $($focused.Current.Name)" | Write-Host }
+    if ($focused) {
+     $focusName = $focused.Current.Name; $names += $focusName; "TAB $i -> $focusName" | Write-Host
+     $sameFocus = if ($focusName -eq $lastFocus) { $sameFocus + 1 } else { 0 }; $lastFocus = $focusName
+     if ($sameFocus -ge 2) { $names | Set-Content (Join-Path $evidence "keyboard-tab-order.txt"); throw "Keyboard focus trapped after Tab: $focusName" }
+    }
    }
    $names | Set-Content (Join-Path $evidence "keyboard-tab-order.txt")
    foreach ($required in @("Browse for Minecraft game folder", "Check for updates", "Install checked update")) {
