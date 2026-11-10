@@ -1,6 +1,7 @@
 param([string]$Exe = "artifacts/manager/Saturn-Mod-Manager.exe")
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type @'
@@ -42,6 +43,27 @@ foreach ($case in $cases) {
   $rows | ConvertTo-Json -Depth 3 | Set-Content (Join-Path $evidence "$($case.name)-uia.json")
   foreach ($name in @("Minecraft game folder", "Browse for Minecraft game folder", "Check for updates", "Install checked update", "Update status")) {
    if (-not ($rows | Where-Object {$_.name -eq $name})) { throw "Accessible control missing: $name in $($case.name)" }
+  }
+  $installRow = $rows | Where-Object {$_.name -eq "Install checked update"} | Select-Object -First 1
+  if ($installRow.offscreen) { throw "Primary install action is below the viewport: $($case.name)" }
+  if ($case.name -eq "busy") {
+   $cancelRow = $rows | Where-Object {$_.name -eq "Cancel current operation safely"} | Select-Object -First 1
+   if (-not $cancelRow.enabled -or $cancelRow.offscreen) { throw "Busy cancellation is not visible/enabled" }
+  }
+  if ($case.name -eq "checked") {
+   $names = @()
+   for ($i=0; $i -lt 16; $i++) {
+    [System.Windows.Forms.SendKeys]::SendWait("{TAB}")
+    Start-Sleep -Milliseconds 80
+    $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
+    if ($focused) { $names += $focused.Current.Name }
+   }
+   $names | Set-Content (Join-Path $evidence "keyboard-tab-order.txt")
+   foreach ($required in @("Browse for Minecraft game folder", "Check for updates", "Install checked update")) {
+    if ($names -notcontains $required) { throw "Keyboard Tab cannot reach: $required" }
+   }
+   $field = $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, "Minecraft game folder")))
+   $field.SetFocus()
   }
   $r = New-Object WindowBounds+RECT
   if (-not [WindowBounds]::GetWindowRect($p.MainWindowHandle, [ref]$r)) { throw "No window bounds" }
