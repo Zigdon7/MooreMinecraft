@@ -44,6 +44,9 @@ sealed class ManagerForm : Form
     PackManifest? pack;
     CancellationTokenSource? cancellation;
     bool busy;
+    bool failedInstallation;
+    Label? actionHeading;
+    readonly Label logHint = Copy("No operation details yet. Check for updates to start a log.");
     bool updatingPreview;
     string? completedProfile;
     string? completedVersion;
@@ -105,7 +108,7 @@ sealed class ManagerForm : Form
         Add(releaseCard, Actions(check));
         releaseSection = releaseCard; ArrangeOverview();
 
-        var installCard = Card("3  Update, then launch Minecraft");
+        var installCard = Card("3  Update, then launch Minecraft"); actionHeading = (Label)installCard.Controls[0];
 
         Add(installCard, nextStep);
         Add(installCard, Actions(install, cancel, rollback));
@@ -129,7 +132,8 @@ sealed class ManagerForm : Form
         Add(details, manifest);
         mods.Columns.Add("Mod ID"); mods.Columns.Add("Release"); mods.Columns.Add("File"); mods.Columns.Add("Size");
         Add(details, Copy("Verified release files", 12, true)); Add(details, mods);
-        Add(details, Copy("Operation details", 12, true)); Add(details, output);
+        Add(details, Copy("Operation details", 12, true)); Add(details, logHint); Add(details, output);
+        output.TextChanged += (_, _) => { logHint.Visible = output.TextLength == 0; ScheduleGeometry(); };
         Add(page, details);
         hints.SetToolTip(profile, "Choose the game directory of the Fabric profile you actually launch.");
         hints.SetToolTip(rollback, "Restores the previous managed mod set in the selected game folder. Worlds and unrelated mods are not changed.");
@@ -164,7 +168,7 @@ sealed class ManagerForm : Form
             await Run(install, "Updating mods — downloading, verifying and applying files…", async token => {
                 await Task.Run(() => new Installer(path, source, Log).Install(selected, token), token);
                 Save(); RefreshInstalled(); completedProfile = path; completedVersion = selected.Version;
-                SetStatus("Update complete — launch your Fabric profile and join staging.");
+                SetStatus("You’re up to date — launch your Fabric profile and join staging.");
             });
         };
         rollback.Click += async (_, _) => {
@@ -215,6 +219,7 @@ sealed class ManagerForm : Form
     }
     void ResizeColumns() {
         if (mods.Columns.Count != 4) return;
+        if (pack is not null) mods.Height = Math.Clamp(pack.Mods.Count, 1, 5) * Math.Max(22, mods.Font.Height + 6) + mods.Font.Height + 14;
         int width = Math.Max(280, mods.ClientSize.Width - SystemInformation.VerticalScrollBarWidth);
         mods.Columns[0].Width = width * 23 / 100; mods.Columns[1].Width = width * 21 / 100;
         mods.Columns[2].Width = width * 43 / 100; mods.Columns[3].Width = width - mods.Columns[0].Width - mods.Columns[1].Width - mods.Columns[2].Width;
@@ -258,20 +263,22 @@ sealed class ManagerForm : Form
     }
     void UpdateActions() {
         browse.Enabled = check.Enabled = profile.Enabled = manifest.Enabled = changeFolder.Enabled = !busy;
-        install.Text = completedProfile == profile.Text.Trim() && completedVersion == pack?.Version ? "Re&install…" : "&Install update";
-        install.AccessibleName = install.Text.StartsWith("Re") ? "Reinstall checked update" : "Install checked update";
+        bool upToDate = completedProfile == profile.Text.Trim() && completedVersion == pack?.Version;
+        install.Text = upToDate ? "Re&install…" : failedInstallation ? "&Try installation again" : "&Install update";
+        if (actionHeading is not null) actionHeading.Text = upToDate ? "3  You’re up to date" : "3  Update, then launch Minecraft";
+        install.AccessibleName = upToDate ? "Reinstall checked update" : failedInstallation ? "Retry checked installation" : "Install checked update";
         install.AccessibleDescription = install.Text.StartsWith("Re") ? "Install the checked version again to repair its managed files." : "Install the reviewed release into the selected game folder.";
         install.Enabled = !busy && pack is not null && Directory.Exists(profile.Text.Trim());
         rollback.Enabled = !busy && CanRestore(); cancel.Visible = busy; cancel.Enabled = busy;
         nextStep.Text = busy ? "Please wait. Cancel safely if needed; recovery finishes before controls unlock." : completedProfile == profile.Text.Trim() && completedVersion == pack?.Version ? "Next: launch your Fabric profile. This update is installed." : pack is null ? "Next: check for updates. Nothing will be installed during this check." : !Directory.Exists(profile.Text.Trim()) ? "Next: choose an existing game folder to enable installation." : "Next: close Minecraft, then install. Downloads are verified and backups kept.";
-        AcceptButton = install.Enabled ? install : check; StylePrimary();
+        AcceptButton = install.Enabled && !upToDate ? install : check; StylePrimary();
     }
     async Task Run(Control initiator, string activity, Func<CancellationToken, Task> action) {
         if (busy || preview) return;
-        busy = true; cancellation = new(); progress.Visible = true; UpdateActions(); SetStatus(activity);
+        failedInstallation = false; busy = true; cancellation = new(); progress.Visible = true; UpdateActions(); SetStatus(activity);
         try { await action(cancellation.Token); }
         catch (OperationCanceledException) { SetStatus("Cancelled — no update completed. Check details before trying again."); Log("Operation cancelled; any started file transaction attempts recovery before returning."); }
-        catch (Exception e) { SetStatus("Could not complete the operation — open technical details for the reason."); Log("Stopped: " + e.Message); MessageBox.Show(this, e.Message, "Saturn update needs attention", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+        catch (Exception e) { failedInstallation = ReferenceEquals(initiator, install); SetStatus("Could not complete the operation — open technical details for the reason."); Log("Stopped: " + e.Message); MessageBox.Show(this, e.Message, "Saturn update needs attention", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
         finally { busy = false; cancellation.Dispose(); cancellation = null; progress.Visible = false; UpdateActions(); (initiator.Enabled ? initiator : check).Focus(); }
     }
     void SetStatus(string text, bool announce = true) {
@@ -293,10 +300,11 @@ sealed class ManagerForm : Form
         if (state != "initial") {
             pack = new(1, "saturn", "0.1.3-preview", "26.3", "0.20.1", [new("saturn_atlas", "Zigdon7/MooreMinecraft", "staging-v0.1.3", "saturn-atlas-companion.jar", new string('a',64), 163840), new("fabric-api", "Zigdon7/MooreMinecraft", "staging-v0.1.3", "fabric-api.jar", new string('b',64), 4194304)]);
             ShowRelease(); nextStep.Text = "Next: close Minecraft, then install. Downloads are verified and backups kept.";
-            status.Text = state switch { "busy" => "Updating mods — downloading and verifying files…", "success" => "Update complete — launch your Fabric profile and join staging.", "error" => "Could not download the update. Check your connection, then try again.", _ => "Release checked — review the versions above, then install." };
+            status.Text = state switch { "busy" => "Updating mods — downloading and verifying files…", "success" => "You’re up to date — launch your Fabric profile and join staging.", "error" => "Could not download the update. Check your connection, then try again.", _ => "Release checked — review the versions above, then install." };
         }
+        if (state == "error") { failedInstallation = true; install.Text = "&Try installation again"; install.AccessibleName = "Retry checked installation"; }
         if (state == "busy") nextStep.Text = "Please wait. Cancel safely if needed; recovery finishes before controls unlock.";
-        if (state == "success") { completedProfile = profile.Text; completedVersion = pack?.Version; install.Text = "Re&install…"; install.AccessibleName = "Reinstall checked update"; installed.Text = "Installed: 0.1.3-preview. Your last managed update is recorded."; nextStep.Text = "Next: launch your Fabric profile. This update is installed."; }
+        if (state == "success") { completedProfile = profile.Text; completedVersion = pack?.Version; if (actionHeading is not null) actionHeading.Text = "3  You’re up to date"; install.Text = "Re&install…"; install.AccessibleName = "Reinstall checked update"; installed.Text = "Installed: 0.1.3-preview. Your last managed update is recorded."; nextStep.Text = "Next: launch your Fabric profile. This update is installed."; }
         if (state == "details") detailsToggle.Checked = true;
         busy = state == "busy"; progress.Visible = busy; cancel.Visible = busy; cancel.Enabled = busy;
         browse.Enabled = check.Enabled = profile.Enabled = manifest.Enabled = changeFolder.Enabled = !busy;
@@ -337,9 +345,14 @@ sealed class ManagerForm : Form
         changeFolder.Visible = pack is not null;
         folderEditor.Visible = pack is null || changeFolder.Checked || (!preview && !Directory.Exists(profile.Text.Trim()));
         selectedFolder.Text = profile.Text.Trim(); selectedFolder.Visible = !folderEditor.Visible;
+        if (folderSection is not null) foreach (var control in new Control[] {selectedFolder, folderEditor, changeFolder}) {
+            var row = folderSection.RowStyles[folderSection.GetRow(control)]; row.SizeType = control.Visible ? SizeType.AutoSize : SizeType.Absolute; row.Height = 0;
+        }
         ScheduleGeometry();
     }
     void StylePrimary() {
+        var weight = install.Text.StartsWith("Re") ? FontStyle.Regular : FontStyle.Bold;
+        if (install.Font.Size != Font.Size || install.Font.Style != weight) install.Font = new Font(Font, weight);
         if (SystemInformation.HighContrast || install.Text.Replace("&", "").Contains("Reinstall")) { install.BackColor = SystemColors.Control; install.ForeColor = SystemColors.ControlText; install.FlatStyle = FlatStyle.System; install.UseVisualStyleBackColor = true; return; }
         install.FlatStyle = FlatStyle.Flat; install.UseVisualStyleBackColor = false;
         install.BackColor = install.Enabled ? Color.FromArgb(22, 71, 109) : SystemColors.Control;
@@ -358,6 +371,7 @@ sealed class ManagerForm : Form
         if (wide) overview.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         overview.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         if (!wide) overview.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        folderSection.Dock = releaseSection.Dock = wide ? DockStyle.Fill : DockStyle.Top;
         folderSection.Margin = new Padding(0, 0, wide ? 12 : 0, 12);
         if (!overview.Controls.Contains(folderSection)) overview.Controls.Add(folderSection);
         if (!overview.Controls.Contains(releaseSection)) overview.Controls.Add(releaseSection);

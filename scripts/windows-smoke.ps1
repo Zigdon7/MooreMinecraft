@@ -19,6 +19,7 @@ New-Item -ItemType Directory -Force -Path $evidence | Out-Null
 $cases = @(
  @{name="initial"; args="--ui-preview initial"},
  @{name="checked"; args="--ui-preview checked"},
+ @{name="keyboard"; args="--ui-preview checked"},
  @{name="uia-expand"; args="--ui-preview checked"},
  @{name="busy"; args="--ui-preview busy"},
  @{name="success"; args="--ui-preview success"},
@@ -43,7 +44,7 @@ foreach ($case in $cases) {
    $rows += [pscustomobject]@{name=$c.Name; type=$c.ControlType.ProgrammaticName; enabled=$c.IsEnabled; offscreen=$c.IsOffscreen; bounds=$c.BoundingRectangle.ToString()}
   }
   $rows | ConvertTo-Json -Depth 3 | Set-Content (Join-Path $evidence "$($case.name)-uia.json")
-  $installName = if ($case.name -eq "success") { "Reinstall checked update" } else { "Install checked update" }
+  $installName = if ($case.name -eq "success") { "Reinstall checked update" } elseif ($case.name -eq "error") { "Retry checked installation" } else { "Install checked update" }
   foreach ($name in @("Check for updates", $installName, "Update status")) {
    if (-not ($rows | Where-Object {$_.name -eq $name})) { throw "Accessible control missing: $name in $($case.name)" }
   }
@@ -59,11 +60,16 @@ foreach ($case in $cases) {
    if (-not $worker.WaitForExit(20000)) { $worker.Kill(); throw "UIA expansion provider timed out" }
    if ($worker.ExitCode -ne 0) { throw "UIA expansion worker failed: $($worker.ExitCode)" }
   }
-  if ($case.name -eq "checked") {
+  if ($case.name -eq "keyboard") {
    $toggle = $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, ([System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, "Change selected game folder")))
    # Expand/collapse through real keyboard input. Synchronous UIA Toggle across
    # a structural visibility change can deadlock the provider on hosted Windows.
    $toggle.SetFocus()
+   for ($wait=0; $wait -lt 20; $wait++) {
+    if ([System.Windows.Automation.AutomationElement]::FocusedElement.Current.Name -eq "Change selected game folder") { break }
+    Start-Sleep -Milliseconds 50
+   }
+   if ([System.Windows.Automation.AutomationElement]::FocusedElement.Current.Name -ne "Change selected game folder") { throw "Checkbox focus did not settle before keyboard Space" }
    [System.Windows.Forms.SendKeys]::SendWait(" ")
    Start-Sleep -Milliseconds 300
    if ($toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On) { throw "Keyboard Space did not expand Change folder" }
@@ -86,10 +92,17 @@ foreach ($case in $cases) {
     if ($names -notcontains $required) { throw "Keyboard Tab cannot reach: $required" }
    }
    $field = $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, ([System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, "Minecraft game folder")))
+   $value = $field.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value
+   if ($value -ne 'C:\Users\Player\AppData\Roaming\.minecraft') { throw "Keyboard flow changed the game folder unexpectedly" }
    $field.SetFocus()
    # Expand/collapse through real keyboard input. Synchronous UIA Toggle across
    # a structural visibility change can deadlock the provider on hosted Windows.
    $toggle.SetFocus()
+   for ($wait=0; $wait -lt 20; $wait++) {
+    if ([System.Windows.Automation.AutomationElement]::FocusedElement.Current.Name -eq "Change selected game folder") { break }
+    Start-Sleep -Milliseconds 50
+   }
+   if ([System.Windows.Automation.AutomationElement]::FocusedElement.Current.Name -ne "Change selected game folder") { throw "Checkbox focus did not settle before keyboard Space" }
    [System.Windows.Forms.SendKeys]::SendWait(" ")
    $checkControl = $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, ([System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, "Check for updates")))
    $checkControl.SetFocus()
