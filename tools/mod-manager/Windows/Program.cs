@@ -34,6 +34,8 @@ sealed class ManagerForm : Form
     readonly TableLayoutPanel overview = Stack();
     TableLayoutPanel? folderSection, releaseSection;
     bool wideOverview;
+    bool geometryQueued, applyingGeometry;
+    int geometryPasses;
     readonly TableLayoutPanel shell = Stack();
     readonly Panel scroll = new() { Dock = DockStyle.Fill, AutoScroll = true };
     readonly ToolTip hints = new() { AutoPopDelay = 20000 };
@@ -69,7 +71,7 @@ sealed class ManagerForm : Form
         shell.Dock = DockStyle.Fill; shell.AutoSize = false; shell.RowCount = 2;
         shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); shell.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         shell.Controls.Add(scroll, 0, 0); Controls.Add(shell);
-        scroll.ClientSizeChanged += (_, _) => { page.Width = Math.Max(260, scroll.ClientSize.Width - SystemInformation.VerticalScrollBarWidth); ArrangeOverview(); WrapLabels(page); ResizeColumns(); };
+        scroll.ClientSizeChanged += (_, _) => ScheduleGeometry();
 
         var header = Stack();
         header.Margin = new Padding(0, 0, 0, 18);
@@ -87,7 +89,7 @@ sealed class ManagerForm : Form
         Add(folderEditor, Copy("Use the game directory shown in your launcher’s Fabric profile."));
         Add(folderCard, selectedFolder); Add(folderCard, folderEditor);
         Add(folderCard, changeFolder);
-        changeFolder.CheckedChanged += (_, _) => ShowFolderEditor();
+        changeFolder.CheckedChanged += (_, _) => { ShowFolderEditor(); if (changeFolder.Checked && IsHandleCreated) BeginInvoke(() => profile.Focus()); };
         Add(folderCard, installed);
         folderSection = folderCard;
         Add(page, overview);
@@ -139,7 +141,7 @@ sealed class ManagerForm : Form
             using var dialog = new FolderBrowserDialog { Description = "Choose your Fabric profile’s game directory", ShowNewFolderButton = false, SelectedPath = profile.Text };
             if (dialog.ShowDialog(this) == DialogResult.OK) profile.Text = dialog.SelectedPath;
         };
-        detailsToggle.CheckedChanged += (_, _) => { details.Visible = detailsToggle.Checked; WrapLabels(page); if (details.Visible && IsHandleCreated) BeginInvoke(() => scroll.ScrollControlIntoView(details)); };
+        detailsToggle.CheckedChanged += (_, _) => { details.Visible = detailsToggle.Checked; ScheduleGeometry(); if (details.Visible && IsHandleCreated) BeginInvoke(() => scroll.ScrollControlIntoView(details)); };
         check.Click += async (_, _) => await Run(check, "Checking the staging release…", async token => {
             // Invalidate a previous check before attempting a new one; failed checks never leave a stale install action.
             pack = null; ShowRelease();
@@ -175,9 +177,9 @@ sealed class ManagerForm : Form
         };
         RefreshInstalled(); UpdateActions();
         // Offline visual/accessibility fixture only: never fetches or mutates a user's game directory.
-        if (preview) ConfigurePreview(args);
+        if (preview) { ConfigurePreview(args); TraceFocus(shell); }
         SetTabOrder(shell);
-        Shown += (_, _) => { Height = Math.Min(Height, Screen.FromControl(this).WorkingArea.Height); Width = Math.Min(Width, Screen.FromControl(this).WorkingArea.Width); ArrangeOverview(); WrapLabels(page); ResizeColumns(); if (details.Visible) scroll.ScrollControlIntoView(details); else if (folderEditor.Visible) profile.Focus(); else check.Focus(); };
+        Shown += (_, _) => { Height = Math.Min(Height, Screen.FromControl(this).WorkingArea.Height); Width = Math.Min(Width, Screen.FromControl(this).WorkingArea.Width); ApplyGeometry(); if (details.Visible) scroll.ScrollControlIntoView(details); else if (folderEditor.Visible) profile.Focus(); else check.Focus(); };
     }
 
     static Button ActionButton(string text, string name) => new() { Text = text, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(12, 7, 12, 7), Margin = new Padding(0, 4, 10, 4), UseVisualStyleBackColor = true, AccessibleName = name };
@@ -188,7 +190,7 @@ sealed class ManagerForm : Form
     }
     static TableLayoutPanel Card(string title) {
         var panel = Stack(); panel.Padding = new Padding(16, 12, 16, 12); panel.Margin = new Padding(0, 0, 0, 12);
-        panel.SizeChanged += (_, _) => WrapLabels(panel);
+
         panel.BackColor = SystemColors.Window; panel.ForeColor = SystemColors.WindowText;
         Add(panel, Copy(title, 12, true)); return panel;
     }
@@ -200,7 +202,7 @@ sealed class ManagerForm : Form
     static void SetTabOrder(Control parent) { int index = 0; foreach (Control child in parent.Controls) { child.TabIndex = index++; if (child is Label) child.TabStop = false; SetTabOrder(child); } }
     static void WrapLabels(Control parent) {
         foreach (Control child in parent.Controls) {
-            if (child is Label label) label.MaximumSize = new Size(Math.Max(160, parent.ClientSize.Width - parent.Padding.Horizontal - label.Margin.Horizontal), 0);
+            if (child is Label label) { var size = new Size(Math.Max(160, parent.ClientSize.Width - parent.Padding.Horizontal - label.Margin.Horizontal), 0); if (label.MaximumSize != size) label.MaximumSize = size; }
             if (child.HasChildren) WrapLabels(child);
         }
     }
@@ -218,7 +220,7 @@ sealed class ManagerForm : Form
         check.Text = "&Check again";
         contents.Text = string.Join(Environment.NewLine, pack.Mods.Select(m => $"• {FriendlyName(m.Id)}  —  {m.Size / 1048576.0:0.0} MB"));
         foreach (var m in pack.Mods) mods.Items.Add(new ListViewItem([m.Id, m.Tag, m.Asset, $"{m.Size / 1048576.0:0.0} MB"]));
-        WrapLabels(page); ResizeColumns();
+        ScheduleGeometry(); ResizeColumns();
     }
     static string FriendlyName(string id) => id switch { "saturn_atlas" or "saturn_atlas_companion" => "Saturn Atlas companion", "fabric-api" or "fabric_api" => "Fabric API", _ => id.Replace('_', ' ').Replace('-', ' ') };
     void RefreshInstalled() {
@@ -229,7 +231,7 @@ sealed class ManagerForm : Form
                 installed.Text = $"Installed: {record.Version}. Your last managed update is recorded.";
             } else installed.Text = Directory.Exists(profile.Text.Trim()) ? "Folder found. No Saturn-managed installation recorded yet." : "Folder not found — browse to an existing Minecraft game directory.";
         } catch (Exception e) { installed.Text = "Installation record could not be read. Open technical details for the reason."; Log("Installation record: " + e.Message); }
-        WrapLabels(page);
+        ScheduleGeometry();
     }
     static string RecoverySummary(string path) {
         try {
@@ -268,7 +270,7 @@ sealed class ManagerForm : Form
     void SetStatus(string text, bool announce = true) {
         status.Text = text; status.AccessibleDescription = text;
         if (announce) status.AccessibilityObject.RaiseAutomationNotification(AutomationNotificationKind.Other, AutomationNotificationProcessing.ImportantMostRecent, text);
-        if (announce) Log(text); WrapLabels(page);
+        if (announce) Log(text); ScheduleGeometry();
     }
     void Log(string text) { if (IsDisposed) return; if (InvokeRequired) { BeginInvoke(() => Log(text)); return; } output.AppendText(DateTime.Now.ToString("HH:mm:ss") + "  " + text + Environment.NewLine); }
     void RestoreSettings() {
@@ -297,11 +299,38 @@ sealed class ManagerForm : Form
         if (args.Contains("--narrow")) Size = new Size(660, 720);
         updatingPreview = false; StylePrimary();
     }
+    void ScheduleGeometry() {
+        if (applyingGeometry || geometryQueued || !IsHandleCreated || IsDisposed) return;
+        geometryQueued = true;
+        BeginInvoke(() => { geometryQueued = false; if (!IsDisposed) ApplyGeometry(); });
+    }
+    void ApplyGeometry() {
+        if (applyingGeometry) return;
+        applyingGeometry = true;
+        try {
+            int width = page.ClientSize.Width;
+            ArrangeOverview(); page.PerformLayout(); WrapLabels(shell); ResizeColumns();
+            TraceUi("geometry " + (++geometryPasses) + " width=" + width + " wide=" + wideOverview);
+        } finally { applyingGeometry = false; }
+    }
+    void TraceUi(string text) {
+        if (!preview) return;
+        var file = Environment.GetEnvironmentVariable("SATURN_UI_TRACE_FILE");
+        if (string.IsNullOrWhiteSpace(file)) return;
+        try { File.AppendAllText(file, DateTime.UtcNow.ToString("O") + " " + text + Environment.NewLine); } catch { }
+    }
+    void TraceFocus(Control parent) {
+        foreach (Control child in parent.Controls) {
+            child.Enter += (_, _) => TraceUi("enter " + child.GetType().Name + " " + child.AccessibleName);
+            child.Leave += (_, _) => TraceUi("leave " + child.GetType().Name + " " + child.AccessibleName);
+            TraceFocus(child);
+        }
+    }
     void ShowFolderEditor() {
         changeFolder.Visible = pack is not null;
         folderEditor.Visible = pack is null || changeFolder.Checked || (!preview && !Directory.Exists(profile.Text.Trim()));
         selectedFolder.Text = profile.Text.Trim(); selectedFolder.Visible = !folderEditor.Visible;
-        WrapLabels(page);
+        ScheduleGeometry();
     }
     void StylePrimary() {
         if (SystemInformation.HighContrast || install.Text.Replace("&", "").Contains("Reinstall")) { install.BackColor = SystemColors.Control; install.ForeColor = SystemColors.ControlText; install.FlatStyle = FlatStyle.System; install.UseVisualStyleBackColor = true; return; }
@@ -316,14 +345,17 @@ sealed class ManagerForm : Form
         if (folderSection is null || releaseSection is null) return;
         bool wide = page.Width - page.Padding.Horizontal >= 780 * (Font.Size / 10f);
         if (overview.Controls.Count != 0 && wide == wideOverview) return;
-        overview.SuspendLayout(); overview.Controls.Clear(); overview.ColumnStyles.Clear(); overview.RowStyles.Clear();
+        overview.SuspendLayout(); overview.ColumnStyles.Clear(); overview.RowStyles.Clear();
         wideOverview = wide; overview.ColumnCount = wide ? 2 : 1; overview.RowCount = wide ? 1 : 2;
         overview.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, wide ? 50 : 100));
         if (wide) overview.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         overview.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         if (!wide) overview.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         folderSection.Margin = new Padding(0, 0, wide ? 12 : 0, 12);
-        overview.Controls.Add(folderSection, 0, 0); overview.Controls.Add(releaseSection, wide ? 1 : 0, wide ? 0 : 1);
+        if (!overview.Controls.Contains(folderSection)) overview.Controls.Add(folderSection);
+        if (!overview.Controls.Contains(releaseSection)) overview.Controls.Add(releaseSection);
+        overview.SetCellPosition(folderSection, new TableLayoutPanelCellPosition(0, 0));
+        overview.SetCellPosition(releaseSection, new TableLayoutPanelCellPosition(wide ? 1 : 0, wide ? 0 : 1));
         overview.ResumeLayout(true); SetTabOrder(shell);
     }
     static void EnlargeText(Control control) {

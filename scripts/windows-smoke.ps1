@@ -27,6 +27,7 @@ $cases = @(
  @{name="large-text"; args="--ui-preview checked --large-text"}
 )
 foreach ($case in $cases) {
+ [Environment]::SetEnvironmentVariable("SATURN_UI_TRACE_FILE", (Join-Path $evidence "$($case.name)-focus-trace.txt"))
  $p = Start-Process -FilePath $resolved -ArgumentList $case.args -PassThru
  try {
   Start-Sleep -Seconds 3
@@ -55,12 +56,14 @@ foreach ($case in $cases) {
    $toggle = $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, ([System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, "Change selected game folder")))
    $toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
    Start-Sleep -Milliseconds 300
+   $expanded = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+   @($expanded | ForEach-Object { [pscustomobject]@{name=$_.Current.Name; enabled=$_.Current.IsEnabled; offscreen=$_.Current.IsOffscreen; bounds=$_.Current.BoundingRectangle.ToString()} }) | ConvertTo-Json -Depth 3 | Set-Content (Join-Path $evidence "expanded-uia.json")
    $names = @()
    for ($i=0; $i -lt 16; $i++) {
     [System.Windows.Forms.SendKeys]::SendWait("{TAB}")
     Start-Sleep -Milliseconds 80
     $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
-    if ($focused) { $names += $focused.Current.Name }
+    if ($focused) { $names += $focused.Current.Name; "TAB $i -> $($focused.Current.Name)" | Write-Host }
    }
    $names | Set-Content (Join-Path $evidence "keyboard-tab-order.txt")
    foreach ($required in @("Browse for Minecraft game folder", "Check for updates", "Install checked update")) {
@@ -82,6 +85,16 @@ foreach ($case in $cases) {
   $graphics.Dispose(); $bitmap.Dispose()
   "PASS native Windows $($case.name): window + named UIA controls" | Add-Content artifacts/manager/windows-smoke.txt
  } finally {
+  if (-not $p.HasExited) {
+   try {
+    $lastRect = New-Object WindowBounds+RECT
+    $null = [WindowBounds]::GetWindowRect($p.MainWindowHandle, [ref]$lastRect)
+    $last = New-Object System.Drawing.Bitmap(($lastRect.Right-$lastRect.Left),($lastRect.Bottom-$lastRect.Top))
+    $g = [System.Drawing.Graphics]::FromImage($last)
+    $g.CopyFromScreen($lastRect.Left,$lastRect.Top,0,0,$last.Size)
+    $last.Save((Join-Path $evidence "$($case.name)-last.png")); $g.Dispose(); $last.Dispose()
+   } catch { Write-Warning "Could not capture final frame: $_" }
+  }
   if (-not $p.HasExited) { $null=$p.CloseMainWindow(); if(-not $p.WaitForExit(5000)){$p.Kill()} }
  }
 }

@@ -47,6 +47,7 @@ jobs:
       - name: Build portable Windows executable
         run: dotnet publish tools/mod-manager/Windows/Saturn.ModManager.csproj -c Release -r win-x64 --self-contained -o artifacts/manager
       - name: Native Windows startup smoke test
+        timeout-minutes: 4
         shell: pwsh
         run: scripts/windows-smoke.ps1
       - uses: actions/upload-artifact@v4
