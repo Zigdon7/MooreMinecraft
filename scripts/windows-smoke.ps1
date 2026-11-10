@@ -54,8 +54,12 @@ foreach ($case in $cases) {
   }
   if ($case.name -eq "checked") {
    $toggle = $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, ([System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, "Change selected game folder")))
-   $toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+   # Expand/collapse through real keyboard input. Synchronous UIA Toggle across
+   # a structural visibility change can deadlock the provider on hosted Windows.
+   $toggle.SetFocus()
+   [System.Windows.Forms.SendKeys]::SendWait(" ")
    Start-Sleep -Milliseconds 300
+   if ($toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On) { throw "Keyboard Space did not expand Change folder" }
    $expanded = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
    @($expanded | ForEach-Object { [pscustomobject]@{name=$_.Current.Name; enabled=$_.Current.IsEnabled; offscreen=$_.Current.IsOffscreen; bounds=$_.Current.BoundingRectangle.ToString()} }) | ConvertTo-Json -Depth 3 | Set-Content (Join-Path $evidence "expanded-uia.json")
    $names = @()
@@ -76,7 +80,10 @@ foreach ($case in $cases) {
    }
    $field = $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, ([System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, "Minecraft game folder")))
    $field.SetFocus()
-   $toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+   # Expand/collapse through real keyboard input. Synchronous UIA Toggle across
+   # a structural visibility change can deadlock the provider on hosted Windows.
+   $toggle.SetFocus()
+   [System.Windows.Forms.SendKeys]::SendWait(" ")
    $checkControl = $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, ([System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, "Check for updates")))
    $checkControl.SetFocus()
    Start-Sleep -Milliseconds 200
