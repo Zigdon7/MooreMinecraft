@@ -31,6 +31,7 @@ sealed class ManagerForm : Form
     readonly TableLayoutPanel overview = Stack();
     TableLayoutPanel? folderSection, releaseSection;
     bool wideOverview;
+    readonly TableLayoutPanel shell = Stack();
     readonly Panel scroll = new() { Dock = DockStyle.Fill, AutoScroll = true };
     readonly ToolTip hints = new() { AutoPopDelay = 20000 };
     readonly GitHubSource source = new();
@@ -59,7 +60,9 @@ sealed class ManagerForm : Form
         page.Dock = DockStyle.Top;
         page.AutoSizeMode = AutoSizeMode.GrowAndShrink;
         scroll.Controls.Add(page);
-        Controls.Add(scroll);
+        shell.Dock = DockStyle.Fill; shell.AutoSize = false; shell.RowCount = 2;
+        shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); shell.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        shell.Controls.Add(scroll, 0, 0); Controls.Add(shell);
         scroll.ClientSizeChanged += (_, _) => { page.Width = Math.Max(260, scroll.ClientSize.Width - SystemInformation.VerticalScrollBarWidth); ArrangeOverview(); WrapLabels(page); ResizeColumns(); };
 
         var header = Stack();
@@ -89,17 +92,16 @@ sealed class ManagerForm : Form
         releaseSection = releaseCard; ArrangeOverview();
 
         var installCard = Card("3  Update, then launch Minecraft");
-        Add(installCard, Copy("Close Minecraft before installing or restoring mods. Open files can interrupt the update."));
+
         Add(installCard, nextStep);
-        Add(installCard, Actions(install, cancel));
+        Add(installCard, Actions(install, cancel, rollback));
         Add(installCard, progress);
         status.AccessibleName = "Update status";
         status.AccessibleRole = AccessibleRole.StaticText;
         status.Font = new Font(Font, FontStyle.Bold);
         Add(installCard, status);
-        Add(installCard, Copy("Downloads are verified before installation. Backups are kept for recovery."));
-        Add(installCard, Actions(rollback));
-        Add(page, installCard);
+        installCard.Margin = new Padding(24, 0, 24, 12);
+        shell.Controls.Add(installCard, 0, 1);
 
         var setup = new LinkLabel { Text = "First time? Open the Fabric Loader installer website", AutoSize = true, AccessibleName = "Open official Fabric Loader installer website", Margin = new Padding(0, 8, 0, 8), LinkColor = SystemColors.HotTrack };
         setup.LinkClicked += (_, _) => Process.Start(new ProcessStartInfo("https://fabricmc.net/use/installer/") { UseShellExecute = true });
@@ -164,8 +166,8 @@ sealed class ManagerForm : Form
         RefreshInstalled(); UpdateActions();
         // Offline visual/accessibility fixture only: never fetches or mutates a user's game directory.
         if (preview) ConfigurePreview(args);
-        SetTabOrder(page);
-        Shown += (_, _) => { ArrangeOverview(); WrapLabels(page); ResizeColumns(); profile.Focus(); };
+        SetTabOrder(shell);
+        Shown += (_, _) => { Height = Math.Min(Height, Screen.FromControl(this).WorkingArea.Height); Width = Math.Min(Width, Screen.FromControl(this).WorkingArea.Width); ArrangeOverview(); WrapLabels(page); ResizeColumns(); profile.Focus(); };
     }
 
     static Button ActionButton(string text, string name) => new() { Text = text, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(12, 7, 12, 7), Margin = new Padding(0, 4, 10, 4), UseVisualStyleBackColor = true, AccessibleName = name };
@@ -235,7 +237,7 @@ sealed class ManagerForm : Form
         browse.Enabled = check.Enabled = profile.Enabled = manifest.Enabled = !busy;
         install.Enabled = !busy && pack is not null && Directory.Exists(profile.Text.Trim());
         rollback.Enabled = !busy && CanRestore(); cancel.Visible = busy; cancel.Enabled = busy;
-        nextStep.Text = completedProfile == profile.Text.Trim() && completedVersion == pack?.Version ? "Next: launch your Fabric profile. This update is installed." : pack is null ? "Next: check for updates. Nothing will be installed during this check." : !Directory.Exists(profile.Text.Trim()) ? "Next: choose an existing game folder to enable installation." : "Next: close Minecraft, then install the checked update.";
+        nextStep.Text = completedProfile == profile.Text.Trim() && completedVersion == pack?.Version ? "Next: launch your Fabric profile. This update is installed." : pack is null ? "Next: check for updates. Nothing will be installed during this check." : !Directory.Exists(profile.Text.Trim()) ? "Next: choose an existing game folder to enable installation." : "Next: close Minecraft, then install. Downloads are verified and backups kept.";
         AcceptButton = install.Enabled ? install : check;
     }
     async Task Run(Control initiator, string activity, Func<CancellationToken, Task> action) {
@@ -264,7 +266,7 @@ sealed class ManagerForm : Form
         string state = args.SkipWhile(a => a != "--ui-preview").Skip(1).FirstOrDefault() ?? "initial";
         if (state != "initial") {
             pack = new(1, "saturn", "0.1.3-preview", "26.3", "0.20.1", [new("saturn_atlas", "Zigdon7/MooreMinecraft", "staging-v0.1.3", "saturn-atlas-companion.jar", new string('a',64), 163840), new("fabric-api", "Zigdon7/MooreMinecraft", "staging-v0.1.3", "fabric-api.jar", new string('b',64), 4194304)]);
-            ShowRelease(); nextStep.Text = "Next: close Minecraft, then install the checked update.";
+            ShowRelease(); nextStep.Text = "Next: close Minecraft, then install. Downloads are verified and backups kept.";
             status.Text = state switch { "busy" => "Updating mods — downloading and verifying files…", "success" => "Update complete — launch your Fabric profile and join staging.", "error" => "Could not download the update. Check your connection, then try again.", _ => "Release checked — review the versions above, then install." };
         }
         if (state == "success") { installed.Text = "Installed: 0.1.3-preview. Your last managed update is recorded."; nextStep.Text = "Next: launch your Fabric profile. This update is installed."; }
@@ -289,7 +291,7 @@ sealed class ManagerForm : Form
         if (!wide) overview.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         folderSection.Margin = new Padding(0, 0, wide ? 12 : 0, 12);
         overview.Controls.Add(folderSection, 0, 0); overview.Controls.Add(releaseSection, wide ? 1 : 0, wide ? 0 : 1);
-        overview.ResumeLayout(true); SetTabOrder(page);
+        overview.ResumeLayout(true); SetTabOrder(shell);
     }
     static void EnlargeText(Control control) {
         // Snapshot before mutating parents: inherited fonts must not compound by nesting depth.
