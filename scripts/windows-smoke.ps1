@@ -13,6 +13,17 @@ public static class WindowBounds {
  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
 }
 '@
+function Focus-WithTabs([string]$Name) {
+ for ($attempt=0; $attempt -lt 20; $attempt++) {
+  if ([System.Windows.Automation.AutomationElement]::FocusedElement.Current.Name -eq $Name) {
+   Start-Sleep -Milliseconds 100
+   if ([System.Windows.Automation.AutomationElement]::FocusedElement.Current.Name -eq $Name) { return }
+  }
+  [System.Windows.Forms.SendKeys]::SendWait("{TAB}")
+  Start-Sleep -Milliseconds 100
+ }
+ throw "Keyboard cannot focus: $Name"
+}
 $resolved = (Resolve-Path $Exe).Path
 $evidence = Join-Path (Resolve-Path artifacts/manager) "ui-evidence"
 New-Item -ItemType Directory -Force -Path $evidence | Out-Null
@@ -64,12 +75,7 @@ foreach ($case in $cases) {
    $toggle = $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, ([System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, "Change selected game folder")))
    # Expand/collapse through real keyboard input. Synchronous UIA Toggle across
    # a structural visibility change can deadlock the provider on hosted Windows.
-   $toggle.SetFocus()
-   for ($wait=0; $wait -lt 20; $wait++) {
-    if ([System.Windows.Automation.AutomationElement]::FocusedElement.Current.Name -eq "Change selected game folder") { break }
-    Start-Sleep -Milliseconds 50
-   }
-   if ([System.Windows.Automation.AutomationElement]::FocusedElement.Current.Name -ne "Change selected game folder") { throw "Checkbox focus did not settle before keyboard Space" }
+   Focus-WithTabs "Change selected game folder"
    [System.Windows.Forms.SendKeys]::SendWait(" ")
    Start-Sleep -Milliseconds 300
    if ($toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On) { throw "Keyboard Space did not expand Change folder" }
@@ -94,18 +100,12 @@ foreach ($case in $cases) {
    $field = $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, ([System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, "Minecraft game folder")))
    $value = $field.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value
    if ($value -ne 'C:\Users\Player\AppData\Roaming\.minecraft') { throw "Keyboard flow changed the game folder unexpectedly" }
-   $field.SetFocus()
    # Expand/collapse through real keyboard input. Synchronous UIA Toggle across
    # a structural visibility change can deadlock the provider on hosted Windows.
-   $toggle.SetFocus()
-   for ($wait=0; $wait -lt 20; $wait++) {
-    if ([System.Windows.Automation.AutomationElement]::FocusedElement.Current.Name -eq "Change selected game folder") { break }
-    Start-Sleep -Milliseconds 50
-   }
-   if ([System.Windows.Automation.AutomationElement]::FocusedElement.Current.Name -ne "Change selected game folder") { throw "Checkbox focus did not settle before keyboard Space" }
+   Focus-WithTabs "Change selected game folder"
    [System.Windows.Forms.SendKeys]::SendWait(" ")
    $checkControl = $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, ([System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, "Check for updates")))
-   $checkControl.SetFocus()
+   Focus-WithTabs "Check for updates"
    Start-Sleep -Milliseconds 200
   }
   $r = New-Object WindowBounds+RECT
