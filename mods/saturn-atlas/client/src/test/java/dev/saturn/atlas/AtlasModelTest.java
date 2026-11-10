@@ -1,0 +1,21 @@
+package dev.saturn.atlas;
+import com.google.gson.*;
+import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
+class AtlasModelTest {
+ static final String ID="11111111-1111-4111-8111-111111111111";
+ static JsonObject base(){return JsonParser.parseString("{\"v\":1,\"world\":\"world\",\"x\":-0.5,\"z\":-16.5,\"balance\":3,\"tiles\":[],\"anchors\":[],\"markers\":[],\"quote\":null}").getAsJsonObject();}
+ static JsonObject point(){return JsonParser.parseString("{\"id\":\""+ID+"\",\"name\":\"Home\",\"x\":0,\"z\":0}").getAsJsonObject();}
+ @Test void blankMapIsAValidReplyNotInfiniteWaiting(){var m=new AtlasModel();m.request(10);m.receive(base().toString(),20);assertEquals(AtlasModel.State.READY,m.state);assertNotNull(m.snapshot);assertTrue(m.notice.contains("No terrain"));assertFalse(m.canQuote());assertFalse(m.canConfirm(20));}
+ @Test void timeoutAndRetryRecover(){var m=new AtlasModel();m.request(0);m.tick(AtlasModel.TIMEOUT_NANOS-1);assertEquals(AtlasModel.State.WAITING,m.state);m.tick(AtlasModel.TIMEOUT_NANOS);assertEquals(AtlasModel.State.TIMEOUT,m.state);m.request(9_000_000_000L);m.receive(base().toString(),9_000_000_001L);assertEquals(AtlasModel.State.READY,m.state);}
+ @Test void serverErrorIsVisibleAndDisablesTravel(){var m=new AtlasModel();m.receive("{\"v\":1,\"error\":\"Stand near an origin lodestone\"}",0);assertEquals(AtlasModel.State.ERROR,m.state);assertEquals("Stand near an origin lodestone",m.notice);assertFalse(m.canConfirm(0));}
+ @Test void malformedRepliesDoNotDisappearSilently(){for(String json:new String[]{"{","{}","{\"v\":2}","{\"v\":1,\"world\":null}","[]"}){var m=new AtlasModel();m.receive(json,0);assertEquals(AtlasModel.State.ERROR,m.state,json);assertFalse(m.notice.isBlank());}}
+ @Test void invalidCoordinatesAndPixelsRejected(){for(String replacement:new String[]{"NaN","1e100"}){var b=base();b.addProperty("x",replacement);var m=new AtlasModel();m.receive(b.toString(),0);assertEquals(AtlasModel.State.ERROR,m.state);}
+ var b=base();var tile=JsonParser.parseString("{\"x\":-1,\"z\":-2,\"pixels\":[256,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}");b.getAsJsonArray("tiles").add(tile);var m=new AtlasModel();m.receive(b.toString(),0);assertEquals(AtlasModel.State.ERROR,m.state);}
+ @Test void quoteControlsRequireSelectionBalanceAndUnexpiredMatchingQuote(){var b=base();b.getAsJsonArray("anchors").add(point());b.add("quote",JsonParser.parseString("{\"destination\":\""+ID+"\",\"price\":2,\"remaining_ms\":10}"));var m=new AtlasModel();m.receive(b.toString(),100);assertFalse(m.canConfirm(100));m.selected=ID;assertTrue(m.canQuote());assertTrue(m.canConfirm(100));assertFalse(m.canConfirm(10_000_100));b.addProperty("balance",1);m.receive(b.toString(),100);assertFalse(m.canConfirm(100));}
+ @Test void removedSelectionIsCleared(){var b=base();b.getAsJsonArray("anchors").add(point());var m=new AtlasModel();m.receive(b.toString(),0);m.selected=ID;assertTrue(m.canQuote());m.receive(base().toString(),0);assertEquals("",m.selected);assertFalse(m.canQuote());}
+ @Test void duplicateOrInjectionDestinationsRejected(){var b=base();var a=point();a.addProperty("id","foo;op player");b.getAsJsonArray("anchors").add(a);var m=new AtlasModel();m.receive(b.toString(),0);assertEquals(AtlasModel.State.ERROR,m.state);b=base();b.getAsJsonArray("anchors").add(point());b.getAsJsonArray("anchors").add(point());m.receive(b.toString(),0);assertEquals(AtlasModel.State.ERROR,m.state);}
+ @Test void outOfViewportAndDuplicateTilesRejected(){var b=base();var t=JsonParser.parseString("{\"x\":-1,\"z\":-2,\"pixels\":[6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6]}").getAsJsonObject();b.getAsJsonArray("tiles").add(t);var m=new AtlasModel();m.receive(b.toString(),0);assertEquals(AtlasModel.State.READY,m.state);b.getAsJsonArray("tiles").add(t);m.receive(b.toString(),0);assertEquals(AtlasModel.State.ERROR,m.state);t.addProperty("x",10000);b.getAsJsonArray("tiles").remove(1);m.receive(b.toString(),0);assertEquals(AtlasModel.State.ERROR,m.state);}
+ @Test void disconnectedStateCannotLeakAnotherServersMap(){var m=new AtlasModel();m.receive(base().toString(),0);m.reset();assertNull(m.snapshot);assertEquals(AtlasModel.State.IDLE,m.state);assertFalse(m.canConfirm(0));}
+ @Test void replySizeIsBounded(){var m=new AtlasModel();m.receive("x".repeat(32001),0);assertEquals(AtlasModel.State.ERROR,m.state);}
+}

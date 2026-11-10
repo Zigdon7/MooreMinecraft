@@ -1,0 +1,50 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src/lib.rs (core/target/debug/deps/saturn_atlas_core-ef156e12d1fe27e8)
+
+running 8 tests
+test protocol::tests::multi_byte_length_prefix ... ok
+test protocol::tests::utf8_length_is_bytes_not_characters ... ok
+test protocol::tests::bounds_checked_before_send ... ok
+test tests::changed_price_or_anchor_rejected ... ok
+test tests::access_payment_identity_rechecked ... ok
+test tests::distance_price_and_dimension ... ok
+test tests::remote_or_expired_quote_rejected ... ok
+test tests::marker_ownership_and_persistence ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests saturn_atlas_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running `core/target/debug/examples/protocol_fixture tests/fixtures`
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.8.2/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+Reusing configuration cache.
+> Task :processTestResources NO-SOURCE
+> Task :processClientResources NO-SOURCE
+> Task :validateAccessWidener NO-SOURCE
+> Task :processIncludeJars UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :sourcesJar
+> Task :compileClientJava
+> Task :clientClasses
+> Task :jar
+> Task :assemble
+> Task :compileTestJava
+> Task :testClasses
+> Task :test
+> Task :check
+> Task :build
+
+BUILD SUCCESSFUL in 11s
+8 actionable tasks: 5 executed, 3 up-to-date
+Configuration cache entry reused.
+   Compiling saturn-atlas v0.1.2-dev (/home/mc/.openclaw/workspace/saturn-lodestones/server)
+    Finished `release` profile [optimized] target(s) in 2.66s
+CLIENT SUITE: 26 passed; 0 failed

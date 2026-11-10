@@ -1,0 +1,16 @@
+**/node_modules/
+**/target/
+**/.gradle/
+**/build/
+**/bin/
+**/obj/
+**/TestArtifacts/
+**/publish/
+artifacts/
+.env
+.env.*
+staging/
+**/world/
+**/logs/
+**/backups/
+*.pdb
