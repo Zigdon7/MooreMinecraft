@@ -29,6 +29,13 @@ assign a visual quality score. No server behavior or protocol was changed.
   aged snapshots (15 seconds). Cached data is retained and explicitly marked.
 - Pagination is labelled Prev/Next with a page count.
 
+## Supported utility view minimum
+
+HUD settings and the text-map view support **240 x 150 scaled GUI units** or
+larger. Below either bound they show only a Back control (and an explanatory
+message when space allows), with narrated instructions to enlarge the window or
+lower GUI Scale. They do not stack overlapping interactive controls.
+
 ## Required interactive verification before a quality rating
 
 1. Open in Minecraft Java 26.3 with Fabric, at GUI sizes 380x200, 400x220,

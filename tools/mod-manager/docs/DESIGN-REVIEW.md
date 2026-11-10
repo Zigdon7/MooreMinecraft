@@ -57,3 +57,15 @@ Narrator labels, progress/result announcements and error dialog focus; actual
 100/150/200% Windows DPI/text scaling; contrast themes; long names/paths and
 window resizing. Atlas requires actual Minecraft render/narrator tests, not just
 headless layout checks. Production remains separate from staging.
+
+## Native keyboard regression discovered during review
+
+The condensed-folder variant failed the real Windows Tab test: after expanding
+Change folder, Browse was not reached and repeated focus stayed on the path
+field. The test was retained and strengthened, not removed. Responsive geometry
+updates are now deferred/coalesced, label bounds are assigned only on change,
+Dock.Top width is left to docking, cards stay parented while their cells reflow,
+and expansion deliberately focuses the path field. Preview-only traces record
+geometry passes and Enter/Leave events for diagnosis. Final CI must establish
+whether the correction fixes the regression; the hypothesis is not a passing
+result by itself.
