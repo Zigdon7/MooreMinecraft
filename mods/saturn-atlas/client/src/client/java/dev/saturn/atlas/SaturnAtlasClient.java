@@ -104,13 +104,23 @@ public final class SaturnAtlasClient implements ClientModInitializer {
         void wrapped(GuiGraphicsExtractor g,String text,int x,int y,int w,int maxLines){
             for(var line:font.split(Component.literal(text),Math.max(1,w))){if(maxLines--<=0)break;g.text(font,line,x,y,0xffedf5fa,false);y+=11;}
         }
-        void background(GuiGraphicsExtractor g){g.fill(0,0,width,height,0xff111b28);g.text(font,title,12,12,0xffd8f9ff,true);}
+        boolean tinyFallback(){
+            if(AtlasLayout.utilitySupported(width,height))return false;
+            button("Back",AtlasLayout.utilityControls(width,height,false)[0],this::onClose);return true;
+        }
+        boolean drawTinyFallback(GuiGraphicsExtractor g){
+            if(AtlasLayout.utilitySupported(width,height))return false;
+            if(height>=90)wrapped(g,"This view requires 240 x 150 GUI units. Lower GUI Scale or enlarge the window.",12,34,width-24,Math.max(0,(height-64)/11));
+            return true;
+        }
+        void background(GuiGraphicsExtractor g){g.fill(0,0,width,height,0xff111b28);if(height>=70)g.text(font,title,12,12,0xffd8f9ff,true);}
         @Override public boolean isPauseScreen(){return false;}
     }
     static final class AtlasOptionsScreen extends AtlasUtilityScreen {
         AtlasOptionsScreen(Screen parent){super("Atlas HUD settings",parent);}
         void changed(){int focus=children().indexOf(getFocused());savePreferences();clearWidgets();init();if(focus>=0&&focus<children().size())setFocused(children().get(focus));scheduleNarration();}
         @Override protected void init(){
+            if(tinyFallback())return;
             var r=AtlasLayout.utilityControls(width,height,true);
             button("HUD: "+(preferences.visible?"Shown":"Hidden"),r[0],()->{preferences.visible=!preferences.visible;changed();});
             button("Mode: "+(preferences.text?"Text":"Map"),r[1],()->{preferences.text=!preferences.text;changed();});
@@ -119,8 +129,8 @@ public final class SaturnAtlasClient implements ClientModInitializer {
             button("Text / narrated map",r[4],()->Minecraft.getInstance().gui.setScreen(new AtlasDetailsScreen(this,-1)));
             button("Back",r[5],this::onClose);
         }
-        @Override public Component getNarrationMessage(){return Component.literal("Atlas HUD settings. Visibility, text mode, size, and corner are saved locally. Controls settings also offers rebindable Toggle Atlas HUD and Describe Atlas map keys. "+preferenceNotice);}
-        @Override public void extractRenderState(GuiGraphicsExtractor g,int x,int y,float delta){background(g);super.extractRenderState(g,x,y,delta);wrapped(g,preferenceNotice.isEmpty()?"Saved locally. More shortcuts in Controls.":preferenceNotice,12,112,width-24,Math.max(1,(height-144)/11));}
+        @Override public Component getNarrationMessage(){return Component.literal((AtlasLayout.utilitySupported(width,height)?"Atlas HUD settings. ":"View requires at least 240 by 150 GUI units. Lower GUI Scale or enlarge the window. ")+"Visibility, text mode, size, and corner are saved locally. Controls settings also offers rebindable Toggle Atlas HUD and Describe Atlas map keys. "+preferenceNotice);}
+        @Override public void extractRenderState(GuiGraphicsExtractor g,int x,int y,float delta){background(g);super.extractRenderState(g,x,y,delta);if(drawTinyFallback(g))return;wrapped(g,preferenceNotice.isEmpty()?"Saved locally. More shortcuts in Controls.":preferenceNotice,12,112,width-24,Math.max(1,(height-144)/11));}
     }
     static final class AtlasDetailsScreen extends AtlasUtilityScreen {
         final int index;
@@ -133,7 +143,7 @@ public final class SaturnAtlasClient implements ClientModInitializer {
             var p=points.get(Math.min(index,points.size()-1));String kind=model.snapshot.anchors().contains(p)?"Lodestone: ":"Marker: ";
             return kind+AtlasModel.describePoint(p,c.player.getX(),c.player.getZ());
         }
-        @Override public Component getNarrationMessage(){return Component.literal("Atlas text map. "+model.freshness(System.nanoTime())+". "+describePlayer()+" Point "+(points().isEmpty()?0:Math.min(index+1,points().size()))+" of "+points().size()+". "+current()+". Use Previous and Next to read every point.");}
+        @Override public Component getNarrationMessage(){return Component.literal((AtlasLayout.utilitySupported(width,height)?"Atlas text map. ":"View requires at least 240 by 150 GUI units. Lower GUI Scale or enlarge the window. ")+model.freshness(System.nanoTime())+". "+describePlayer()+" "+AtlasModel.pointPageLabel(index,points().size())+". "+current()+". Use Previous and Next to read every point.");}
         void navigate(int delta){
             int nextIndex=Math.clamp(index+delta,-1,Math.max(-1,points().size()-1));
             var next=new AtlasDetailsScreen(parent,nextIndex);Minecraft.getInstance().gui.setScreen(next);
@@ -148,6 +158,7 @@ public final class SaturnAtlasClient implements ClientModInitializer {
             scheduleNarration();
         }
         @Override protected void init(){
+            if(tinyFallback())return;
             var r=AtlasLayout.utilityControls(width,height,false);
             button("Previous page",r[0],()->navigate(-1)).active=index>=0;
             button("Next point",r[1],()->navigate(1)).active=index+1<points().size();
@@ -155,9 +166,9 @@ public final class SaturnAtlasClient implements ClientModInitializer {
             button("Back",r[3],this::onClose);
         }
         @Override public void extractRenderState(GuiGraphicsExtractor g,int x,int y,float delta){
-            background(g);super.extractRenderState(g,x,y,delta);
+            background(g);super.extractRenderState(g,x,y,delta);if(drawTinyFallback(g))return;
             wrapped(g,model.freshness(System.nanoTime()),12,28,width-24,1);
-            wrapped(g,(index<0?"Overview. ":"Point "+Math.min(index+1,points().size())+" / "+points().size()+". ")+current(),12,40,width-24,Math.max(1,(height-86)/11));
+            wrapped(g,AtlasModel.pointPageLabel(index,points().size())+". "+current(),12,40,width-24,Math.max(1,(height-86)/11));
         }
     }
     static final class AtlasScreen extends Screen {

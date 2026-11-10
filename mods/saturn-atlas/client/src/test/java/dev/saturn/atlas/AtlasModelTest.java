@@ -46,4 +46,11 @@ class AtlasModelTest {
   assertEquals("Long marker name, 5 blocks northwest, coordinates -3, -4",AtlasModel.describePoint(p,0,0));
   assertTrue(AtlasModel.describePoint(new AtlasModel.Point("id","Here",0,0),0,0).contains("blocks here"));
  }
+ @Test void overviewNarrationNeverClaimsPointZero(){
+  assertEquals("Overview; 12 points available",AtlasModel.pointPageLabel(-1,12));
+  assertEquals("Overview; 0 points available",AtlasModel.pointPageLabel(-1,0));
+  assertEquals("Point 1 of 12",AtlasModel.pointPageLabel(0,12));
+  assertEquals("Point 12 of 12",AtlasModel.pointPageLabel(99,12));
+  assertEquals("No points available",AtlasModel.pointPageLabel(0,0));
+ }
 }

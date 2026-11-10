@@ -41,10 +41,11 @@ foreach ($case in $cases) {
    $rows += [pscustomobject]@{name=$c.Name; type=$c.ControlType.ProgrammaticName; enabled=$c.IsEnabled; offscreen=$c.IsOffscreen; bounds=$c.BoundingRectangle.ToString()}
   }
   $rows | ConvertTo-Json -Depth 3 | Set-Content (Join-Path $evidence "$($case.name)-uia.json")
-  foreach ($name in @("Check for updates", "Install or reinstall checked update", "Update status")) {
+  $installName = if ($case.name -eq "success") { "Reinstall checked update" } else { "Install checked update" }
+  foreach ($name in @("Check for updates", $installName, "Update status")) {
    if (-not ($rows | Where-Object {$_.name -eq $name})) { throw "Accessible control missing: $name in $($case.name)" }
   }
-  $installRow = $rows | Where-Object {$_.name -eq "Install or reinstall checked update"} | Select-Object -First 1
+  $installRow = $rows | Where-Object {$_.name -eq $installName} | Select-Object -First 1
   if ($installRow.offscreen) { throw "Primary install action is below the viewport: $($case.name)" }
   if ($case.name -eq "busy") {
    $cancelRow = $rows | Where-Object {$_.name -eq "Cancel current operation safely"} | Select-Object -First 1
@@ -62,7 +63,7 @@ foreach ($case in $cases) {
     if ($focused) { $names += $focused.Current.Name }
    }
    $names | Set-Content (Join-Path $evidence "keyboard-tab-order.txt")
-   foreach ($required in @("Browse for Minecraft game folder", "Check for updates", "Install or reinstall checked update")) {
+   foreach ($required in @("Browse for Minecraft game folder", "Check for updates", "Install checked update")) {
     if ($names -notcontains $required) { throw "Keyboard Tab cannot reach: $required" }
    }
    $field = $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, ([System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, "Minecraft game folder")))

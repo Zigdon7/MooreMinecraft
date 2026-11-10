@@ -13,7 +13,7 @@ sealed class ManagerForm : Form
     readonly TextBox manifest = new() { Dock = DockStyle.Fill, AccessibleName = "Advanced pack manifest URL" };
     readonly Button browse = ActionButton("&Browse…", "Browse for Minecraft game folder");
     readonly Button check = ActionButton("&Check for updates", "Check for updates");
-    readonly Button install = ActionButton("&Install update", "Install or reinstall checked update");
+    readonly Button install = ActionButton("&Install update", "Install checked update");
     readonly Button rollback = ActionButton("&Restore previous mods…", "Restore previous managed mod set");
     readonly Button cancel = ActionButton("Ca&ncel operation", "Cancel current operation safely");
     readonly CheckBox detailsToggle = new() { Text = "Show &technical details", AutoSize = true, AccessibleName = "Show technical details" };
@@ -132,7 +132,8 @@ sealed class ManagerForm : Form
         if (!preview) RestoreSettings();
         profile.TextChanged += (_, _) => { if (!updatingPreview) { completedProfile = completedVersion = null; RefreshInstalled(); UpdateActions(); SetStatus("Game folder changed — review the selected folder before installing.", announce: false); } };
         profile.Validated += (_, _) => { if (!preview && !busy) SetStatus(installed.Text); };
-        manifest.TextChanged += (_, _) => { if (!updatingPreview) { completedProfile = completedVersion = null; pack = null; ShowRelease(); UpdateActions(); SetStatus("Source changed — check for updates again."); } };
+        manifest.TextChanged += (_, _) => { if (!updatingPreview) { completedProfile = completedVersion = null; pack = null; ShowRelease(); UpdateActions(); SetStatus("Source changed — check for updates again.", announce: false); } };
+        manifest.Validated += (_, _) => { if (!preview && !busy && pack is null) SetStatus("Source changed — check for updates again."); };
         browse.Click += (_, _) => {
             if (preview) return;
             using var dialog = new FolderBrowserDialog { Description = "Choose your Fabric profile’s game directory", ShowNewFolderButton = false, SelectedPath = profile.Text };
@@ -248,7 +249,9 @@ sealed class ManagerForm : Form
     }
     void UpdateActions() {
         browse.Enabled = check.Enabled = profile.Enabled = manifest.Enabled = changeFolder.Enabled = !busy;
-        install.Text = completedProfile == profile.Text.Trim() && completedVersion == pack?.Version ? "&Reinstall…" : "&Install update";
+        install.Text = completedProfile == profile.Text.Trim() && completedVersion == pack?.Version ? "Re&install…" : "&Install update";
+        install.AccessibleName = install.Text.StartsWith("Re") ? "Reinstall checked update" : "Install checked update";
+        install.AccessibleDescription = install.Text.StartsWith("Re") ? "Install the checked version again to repair its managed files." : "Install the reviewed release into the selected game folder.";
         install.Enabled = !busy && pack is not null && Directory.Exists(profile.Text.Trim());
         rollback.Enabled = !busy && CanRestore(); cancel.Visible = busy; cancel.Enabled = busy;
         nextStep.Text = busy ? "Please wait. Cancel safely if needed; recovery finishes before controls unlock." : completedProfile == profile.Text.Trim() && completedVersion == pack?.Version ? "Next: launch your Fabric profile. This update is installed." : pack is null ? "Next: check for updates. Nothing will be installed during this check." : !Directory.Exists(profile.Text.Trim()) ? "Next: choose an existing game folder to enable installation." : "Next: close Minecraft, then install. Downloads are verified and backups kept.";
@@ -284,7 +287,7 @@ sealed class ManagerForm : Form
             status.Text = state switch { "busy" => "Updating mods — downloading and verifying files…", "success" => "Update complete — launch your Fabric profile and join staging.", "error" => "Could not download the update. Check your connection, then try again.", _ => "Release checked — review the versions above, then install." };
         }
         if (state == "busy") nextStep.Text = "Please wait. Cancel safely if needed; recovery finishes before controls unlock.";
-        if (state == "success") { completedProfile = profile.Text; completedVersion = pack?.Version; install.Text = "&Reinstall…"; installed.Text = "Installed: 0.1.3-preview. Your last managed update is recorded."; nextStep.Text = "Next: launch your Fabric profile. This update is installed."; }
+        if (state == "success") { completedProfile = profile.Text; completedVersion = pack?.Version; install.Text = "Re&install…"; install.AccessibleName = "Reinstall checked update"; installed.Text = "Installed: 0.1.3-preview. Your last managed update is recorded."; nextStep.Text = "Next: launch your Fabric profile. This update is installed."; }
         if (state == "details") detailsToggle.Checked = true;
         busy = state == "busy"; progress.Visible = busy; cancel.Visible = busy; cancel.Enabled = busy;
         browse.Enabled = check.Enabled = profile.Enabled = manifest.Enabled = changeFolder.Enabled = !busy;
@@ -301,7 +304,7 @@ sealed class ManagerForm : Form
         WrapLabels(page);
     }
     void StylePrimary() {
-        if (SystemInformation.HighContrast || install.Text.Contains("Reinstall")) { install.FlatStyle = FlatStyle.System; install.UseVisualStyleBackColor = true; return; }
+        if (SystemInformation.HighContrast || install.Text.Replace("&", "").Contains("Reinstall")) { install.BackColor = SystemColors.Control; install.ForeColor = SystemColors.ControlText; install.FlatStyle = FlatStyle.System; install.UseVisualStyleBackColor = true; return; }
         install.FlatStyle = FlatStyle.Flat; install.UseVisualStyleBackColor = false;
         install.BackColor = install.Enabled ? Color.FromArgb(22, 71, 109) : SystemColors.Control;
         install.ForeColor = install.Enabled ? Color.White : SystemColors.GrayText;

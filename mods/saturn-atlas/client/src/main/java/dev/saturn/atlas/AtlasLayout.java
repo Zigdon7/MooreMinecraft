@@ -2,7 +2,9 @@ package dev.saturn.atlas;
 /** All coordinates in scaled GUI units. */
 public record AtlasLayout(int width,int height,boolean compact,Rect map,Rect sidebar,Rect refresh,Rect held,Rect quote,Rect confirm,Rect close) {
  public record Rect(int x,int y,int w,int h){public int right(){return x+w;}public int bottom(){return y+h;}public boolean overlaps(Rect b){return x<b.right()&&right()>b.x&&y<b.bottom()&&bottom()>b.y;}}
+ public static boolean utilitySupported(int width,int height){return width>=240&&height>=150;}
  public static Rect[] utilityControls(int width,int height,boolean settings){
+  if(!utilitySupported(width,height)){int x=Math.min(12,Math.max(0,width/2));return new Rect[]{new Rect(x,Math.max(0,height-28),Math.max(0,width-2*x),Math.min(20,Math.max(0,height)))};}
   int w=(width-30)/2;
   return settings?new Rect[]{new Rect(12,38,w,20),new Rect(18+w,38,w,20),new Rect(12,62,w,20),new Rect(18+w,62,w,20),new Rect(12,86,width-24,20),new Rect(12,height-28,width-24,20)}
    :new Rect[]{new Rect(12,height-52,w,20),new Rect(18+w,height-52,w,20),new Rect(12,height-28,w,20),new Rect(18+w,height-28,w,20)};

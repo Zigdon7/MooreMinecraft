@@ -27,4 +27,12 @@ class AtlasLayoutTest {
    if(!settings)assertTrue(controls[0].y()>=98,"Keep text body above navigation");
   }
  }
+ @Test void belowDocumentedUtilityMinimumOnlyBackControlRemains(){
+  assertTrue(AtlasLayout.utilitySupported(240,150));
+  for(int[] size:new int[][]{{120,80},{240,120},{320,133},{239,150},{20,20}})for(boolean settings:new boolean[]{false,true}){
+   assertFalse(AtlasLayout.utilitySupported(size[0],size[1]));
+   var r=AtlasLayout.utilityControls(size[0],size[1],settings);assertEquals(1,r.length);
+   assertTrue(r[0].x()>=0&&r[0].y()>=0&&r[0].right()<=size[0]&&r[0].bottom()<=size[1]);
+  }
+ }
 }

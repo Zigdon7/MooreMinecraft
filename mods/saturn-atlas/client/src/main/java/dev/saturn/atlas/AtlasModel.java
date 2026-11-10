@@ -31,6 +31,11 @@ public final class AtlasModel {
         String heading=switch(Math.floorMod(Math.round(yaw/90),4)){case 0->"south";case 1->"west";case 2->"north";default->"east";};
         return "Position "+(int)Math.floor(x)+", "+(int)Math.floor(z)+". Facing "+heading+". North is decreasing Z; east is increasing X. "+snapshot.anchors().size()+" lodestones and "+snapshot.markers().size()+" markers. ";
     }
+    public static String pointPageLabel(int index,int count){
+        if(index<0)return "Overview; "+count+" points available";
+        if(count==0)return "No points available";
+        return "Point "+Math.min(index+1,count)+" of "+count;
+    }
     public static String describePoint(Point p,double x,double z){
         double dx=p.x()-x,dz=p.z()-z;String direction=Math.abs(dx)<1&&Math.abs(dz)<1?"here":(dz<=-1?"north":dz>=1?"south":"")+(dx<=-1?"west":dx>=1?"east":"");
         return p.name()+", "+Math.round(Math.hypot(dx,dz))+" blocks "+direction+", coordinates "+(int)Math.floor(p.x())+", "+(int)Math.floor(p.z());
