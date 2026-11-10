@@ -1,0 +1,52 @@
+name: Build and test
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  atlas:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip2
+      - name: Atlas regression suite and builds
+        working-directory: mods/saturn-atlas
+        run: tests/run-local-suite.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: atlas
+          path: |
+            mods/saturn-atlas/client/build/libs/saturn-atlas-companion-0.1.2-dev.jar
+            mods/saturn-atlas/target/wasm32-wasip2/release/saturn_atlas.wasm
+            mods/saturn-atlas/client/build/test-results/test/
+  manager:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Updater transaction regression suite
+        run: dotnet run --project tools/mod-manager/Tests/Saturn.Manager.Tests.csproj
+      - name: Build portable Windows executable
+        run: dotnet publish tools/mod-manager/Windows/Saturn.ModManager.csproj -c Release -r win-x64 --self-contained -o artifacts/manager
+      - name: Native Windows startup smoke test
+        shell: pwsh
+        run: scripts/windows-smoke.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-manager
+          path: |
+            artifacts/manager/Saturn-Mod-Manager.exe
+            artifacts/manager/windows-smoke.*
+            test-results.txt
