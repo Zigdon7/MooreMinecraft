@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "tag": "staging-v0.1.2",
+  "channel": "staging",
+  "components": [
+    {
+      "type": "fabric-client",
+      "version": "0.1.2-dev",
+      "asset": "saturn-atlas-companion-0.1.2-dev.jar",
+      "size": 30595,
+      "sha256": "f4844bf0b6c2a536346499f4e5c3118b8da8fe445ffeabe0a9f514cf94dcfa5d",
+      "download": "https://github.com/Zigdon7/MooreMinecraft/releases/download/staging-v0.1.2/saturn-atlas-companion-0.1.2-dev.jar"
+    },
+    {
+      "type": "pumpkin-server",
+      "version": "0.1.2-dev",
+      "asset": "saturn-atlas-0.1.2.wasm",
+      "size": 1081795,
+      "sha256": "d6d3a73a0b401e2eba63fd97b4dae756f393864fc8165f322b73c5a46247c0ba",
+      "download": "https://github.com/Zigdon7/MooreMinecraft/releases/download/staging-v0.1.2/saturn-atlas-0.1.2.wasm"
+    },
+    {
+      "type": "windows-updater",
+      "version": "0.1.0",
+      "asset": "Saturn-Mod-Manager.exe",
+      "size": 51683456,
+      "sha256": "8529c963c1498b9f6e0152e8e3a12ec543092e2d6568e88efc9ff91d1563d92b",
+      "download": "https://github.com/Zigdon7/MooreMinecraft/releases/download/staging-v0.1.2/Saturn-Mod-Manager.exe"
+    },
+    {
+      "type": "fabric-library",
+      "version": "0.165.2+26.3",
+      "asset": "fabric-api-0.165.2+26.3.jar",
+      "size": 1779306,
+      "sha256": "2612a078a5daa06d9a14cabad40fe66de36b8cb22ee8cdf346d5d9894478c392",
+      "download": "https://github.com/Zigdon7/MooreMinecraft/releases/download/staging-v0.1.2/fabric-api-0.165.2+26.3.jar"
+    }
+  ]
+}

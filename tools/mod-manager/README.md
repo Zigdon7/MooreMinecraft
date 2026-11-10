@@ -17,3 +17,6 @@ The EXE is unsigned and self-contained (no separate .NET installation required).
 `dotnet run --project Tests/Saturn.Manager.Tests.csproj`
 
 `dotnet publish Windows/Saturn.ModManager.csproj -c Release -r win-x64 --self-contained -o publish/win-x64`
+
+## Native Windows smoke-test screenshot
+![Native Windows updater window](docs/windows-smoke.png)

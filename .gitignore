@@ -9,7 +9,7 @@
 artifacts/
 .env
 .env.*
-staging/
+/staging/
 **/world/
 **/logs/
 **/backups/
