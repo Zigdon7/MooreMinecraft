@@ -56,4 +56,5 @@ jobs:
           path: |
             artifacts/manager/Saturn-Mod-Manager.exe
             artifacts/manager/windows-smoke.*
+            artifacts/manager/ui-evidence/
             test-results.txt

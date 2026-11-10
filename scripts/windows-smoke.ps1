@@ -1,31 +1,59 @@
 param([string]$Exe = "artifacts/manager/Saturn-Mod-Manager.exe")
 $ErrorActionPreference = "Stop"
-$resolved = (Resolve-Path $Exe).Path
-$p = Start-Process -FilePath $resolved -PassThru
-try {
-  Start-Sleep -Seconds 5
-  $p.Refresh()
-  if ($p.HasExited) { throw "Manager exited during startup: $($p.ExitCode)" }
-  if ($p.MainWindowHandle -eq 0) { throw "Manager did not create a native Windows window" }
-  "PASS native Windows startup; title=$($p.MainWindowTitle)" | Tee-Object -FilePath artifacts/manager/windows-smoke.txt
-  try {
-    Add-Type -AssemblyName System.Drawing
-    Add-Type @'
+Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+Add-Type @'
 using System;
 using System.Runtime.InteropServices;
 public static class WindowBounds {
  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left,Top,Right,Bottom; }
  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+ [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
 }
 '@
-    $r = New-Object WindowBounds+RECT
-    if (-not [WindowBounds]::GetWindowRect($p.MainWindowHandle, [ref]$r)) { throw "No window bounds" }
-    $image = New-Object System.Drawing.Bitmap(($r.Right-$r.Left),($r.Bottom-$r.Top))
-    $graphics = [System.Drawing.Graphics]::FromImage($image)
-    $graphics.CopyFromScreen($r.Left,$r.Top,0,0,$image.Size)
-    $image.Save((Join-Path (Resolve-Path artifacts/manager) "windows-smoke.png"))
-    $graphics.Dispose(); $image.Dispose()
-  } catch { Write-Warning "Screenshot unavailable: $_" }
-} finally {
+$resolved = (Resolve-Path $Exe).Path
+$evidence = Join-Path (Resolve-Path artifacts/manager) "ui-evidence"
+New-Item -ItemType Directory -Force -Path $evidence | Out-Null
+$cases = @(
+ @{name="initial"; args="--ui-preview initial"},
+ @{name="checked"; args="--ui-preview checked"},
+ @{name="busy"; args="--ui-preview busy"},
+ @{name="success"; args="--ui-preview success"},
+ @{name="error"; args="--ui-preview error"},
+ @{name="details"; args="--ui-preview details"},
+ @{name="narrow"; args="--ui-preview checked --narrow"},
+ @{name="large-text"; args="--ui-preview checked --large-text"}
+)
+foreach ($case in $cases) {
+ $p = Start-Process -FilePath $resolved -ArgumentList $case.args -PassThru
+ try {
+  Start-Sleep -Seconds 3
+  $p.Refresh()
+  if ($p.HasExited -or $p.MainWindowHandle -eq 0) { throw "No live native window: $($case.name)" }
+  $null = [WindowBounds]::SetForegroundWindow($p.MainWindowHandle)
+  $window = [System.Windows.Automation.AutomationElement]::FromHandle($p.MainWindowHandle)
+  $all = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+  $rows = @()
+  foreach ($element in $all) {
+   $c = $element.Current
+   $rows += [pscustomobject]@{name=$c.Name; type=$c.ControlType.ProgrammaticName; enabled=$c.IsEnabled; offscreen=$c.IsOffscreen; bounds=$c.BoundingRectangle.ToString()}
+  }
+  $rows | ConvertTo-Json -Depth 3 | Set-Content (Join-Path $evidence "$($case.name)-uia.json")
+  foreach ($name in @("Minecraft game folder", "Browse for Minecraft game folder", "Check for updates", "Install checked update", "Update status")) {
+   if (-not ($rows | Where-Object {$_.name -eq $name})) { throw "Accessible control missing: $name in $($case.name)" }
+  }
+  $r = New-Object WindowBounds+RECT
+  if (-not [WindowBounds]::GetWindowRect($p.MainWindowHandle, [ref]$r)) { throw "No window bounds" }
+  $bitmap = New-Object System.Drawing.Bitmap(($r.Right-$r.Left),($r.Bottom-$r.Top))
+  $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+  $graphics.CopyFromScreen($r.Left,$r.Top,0,0,$bitmap.Size)
+  $bitmap.Save((Join-Path $evidence "$($case.name).png"))
+  $graphics.Dispose(); $bitmap.Dispose()
+  "PASS native Windows $($case.name): window + named UIA controls" | Add-Content artifacts/manager/windows-smoke.txt
+ } finally {
   if (-not $p.HasExited) { $null=$p.CloseMainWindow(); if(-not $p.WaitForExit(5000)){$p.Kill()} }
+ }
 }
+Copy-Item (Join-Path $evidence "initial.png") artifacts/manager/windows-smoke.png
+# Fixture states are actual native rendering, not network/install, Narrator or real DPI proof.
