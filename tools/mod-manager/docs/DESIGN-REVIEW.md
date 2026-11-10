@@ -69,3 +69,41 @@ and expansion deliberately focuses the path field. Preview-only traces record
 geometry passes and Enter/Leave events for diagnosis. Final CI must establish
 whether the correction fixes the regression; the hypothesis is not a passing
 result by itself.
+
+The first trace disproved a geometry storm (three passes only); the synchronous
+UIA toggle stalled UI dispatch. Structural visibility changes are now deferred
+until after the toggle callback, and keyboard tests expand with Space. A separate,
+bounded MTA worker retains direct UIA expand/collapse coverage for both editors.
+The a50a8b7 native run passed both paths. This follows Microsoft's
+[UI Automation threading guidance](https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-threading),
+but that guidance and the test result do not by themselves identify every cause
+of the earlier hang or prove Narrator speech quality.
+
+## Final review build: 591848d
+
+[Native CI 42909115590](https://github.com/Zigdon7/MooreMinecraft/actions/runs/42909115590)
+passed all 14 Windows scenarios, including the four combined font/narrow/busy/
+error/long-value stress captures. Keyboard expansion/navigation preserves the
+profile path, detects focus traps and reaches the key actions. The isolated MTA
+worker passes direct folder/details expansion/collapse. Core suites: Java 36,
+Rust 8, updater 13; all zero failures. The early provider/focus hypothesis was
+investigated rather than removing a failing accessibility assertion.
+
+Final independent visual review of 8 base + 4 stress captures: hierarchy 9,
+layout 9, typography 9, consistency/polish **8.5**, clarity 9. No blocking visual
+issue. Reviewer recommends user runtime testing rather than speculative redesign.
+The half-point is not rounded up. Accessibility reviewer rates the evidenced
+manager keyboard/semantics/contrast/scaling readiness at 8, feedback/prevention 9;
+Atlas source-based readiness remains 7–8 without an actual game render.
+
+[Downloadable review preview](https://github.com/Zigdon7/MooreMinecraft/releases/tag/design-preview-v0.1.3)
+includes the EXE, client JAR, pinned opt-in manifest, checksums and genuine Windows
+evidence archive. This is not an all-categories-9 acceptance or a production
+deployment. The normal staging manifest is unchanged. See
+[review instructions](../../../releases/design-preview/README.md).
+
+Remaining owner/runtime gate: real Minecraft screenshots and keyboard/narrator
+checks; actual Windows Narrator, real 150/200% DPI/text enlargement and contrast
+themes; keyboard activation of install/restore confirmation and cancellation.
+Owner indicated they will test later. Resume the same review against that
+runtime evidence; do not announce the target reached before it is supported.
