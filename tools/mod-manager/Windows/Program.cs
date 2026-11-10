@@ -145,7 +145,10 @@ sealed class ManagerForm : Form
             using var dialog = new FolderBrowserDialog { Description = "Choose your Fabric profile’s game directory", ShowNewFolderButton = false, SelectedPath = profile.Text };
             if (dialog.ShowDialog(this) == DialogResult.OK) profile.Text = dialog.SelectedPath;
         };
-        detailsToggle.CheckedChanged += (_, _) => { details.Visible = detailsToggle.Checked; ScheduleGeometry(); if (details.Visible && IsHandleCreated) BeginInvoke(() => scroll.ScrollControlIntoView(details)); };
+        detailsToggle.CheckedChanged += (_, _) => {
+            void ApplyDetails() { details.Visible = detailsToggle.Checked; ScheduleGeometry(); if (details.Visible && IsHandleCreated) BeginInvoke(() => scroll.ScrollControlIntoView(details)); }
+            if (IsHandleCreated) BeginInvoke(ApplyDetails); else ApplyDetails();
+        };
         check.Click += async (_, _) => await Run(check, "Checking the staging release…", async token => {
             // Invalidate a previous check before attempting a new one; failed checks never leave a stale install action.
             pack = null; ShowRelease();

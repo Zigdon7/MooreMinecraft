@@ -16,4 +16,11 @@ if (-not $field -or -not $field.Current.IsEnabled -or $field.Current.IsOffscreen
 $pattern.Toggle()
 Start-Sleep -Milliseconds 500
 if ($pattern.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::Off) { throw "UIA did not collapse folder editor" }
-"PASS MTA UIA expand/collapse and accessible editor"
+$detail = $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, "Show technical details"))
+$detailPattern = $detail.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+$detailPattern.Toggle()
+Start-Sleep -Milliseconds 500
+$manifest = $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, "Advanced pack manifest URL"))
+if (-not $manifest -or -not $manifest.Current.IsEnabled) { throw "UIA details editor was not exposed" }
+$detailPattern.Toggle()
+"PASS MTA UIA folder/details expand/collapse and accessible editors"
