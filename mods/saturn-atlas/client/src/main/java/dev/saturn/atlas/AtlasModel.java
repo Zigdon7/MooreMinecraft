@@ -15,10 +15,35 @@ public final class AtlasModel {
     public String selected="",notice="";
     public State state=State.IDLE;
     private long started;
+    private long receivedAt;
     public void request(long now){started=now;state=State.WAITING;notice="Requesting map…";}
     public void tick(long now){if(state==State.WAITING&&now-started>=TIMEOUT_NANOS){state=State.TIMEOUT;notice="No server reply. Refresh to retry.";}}
-    public void reset(){snapshot=null;selected="";notice="";state=State.IDLE;}
+    public void reset(){snapshot=null;selected="";notice="";state=State.IDLE;receivedAt=0;}
+    public String freshness(long now){
+        if(state==State.ERROR)return "Error: "+notice;
+        if(state==State.TIMEOUT)return "Stale: no server reply";
+        if(state==State.WAITING)return "Updating map";
+        if(snapshot==null)return "No map data";
+        return now-receivedAt>15_000_000_000L?"Stale: refresh map":"Map current";
+    }
+    public String describe(double x,double z,float yaw){
+        if(snapshot==null)return "No map data. Refresh to retry.";
+        String heading=switch(Math.floorMod(Math.round(yaw/90),4)){case 0->"south";case 1->"west";case 2->"north";default->"east";};
+        return "Position "+(int)Math.floor(x)+", "+(int)Math.floor(z)+". Facing "+heading+". North is decreasing Z; east is increasing X. "+snapshot.anchors().size()+" lodestones and "+snapshot.markers().size()+" markers. ";
+    }
+    public static String describePoint(Point p,double x,double z){
+        double dx=p.x()-x,dz=p.z()-z;String direction=Math.abs(dx)<1&&Math.abs(dz)<1?"here":(dz<=-1?"north":dz>=1?"south":"")+(dx<=-1?"west":dx>=1?"east":"");
+        return p.name()+", "+Math.round(Math.hypot(dx,dz))+" blocks "+direction+", coordinates "+(int)Math.floor(p.x())+", "+(int)Math.floor(p.z());
+    }
     public boolean canQuote(){return state==State.READY && snapshot!=null&&snapshot.anchors().stream().anyMatch(a->a.id().equals(selected));}
+    /** Short, actionable explanation shown beside travel controls and in their tooltip. */
+    public String travelHint(long now){
+        if(!canQuote())return selected.isEmpty()?"Choose a destination":"Refresh map to quote";
+        if(snapshot.quote()==null||!snapshot.quote().destination().equals(selected))return "Get a travel quote";
+        if(now>=snapshot.quote().expiresNanos())return "Quote expired: get quote";
+        if(snapshot.balance()<snapshot.quote().price())return "Need "+snapshot.quote().price()+" shards";
+        return "Travel: "+snapshot.quote().price()+" shards";
+    }
     public boolean canConfirm(long now){return canQuote()&&snapshot.quote()!=null&&snapshot.quote().destination().equals(selected)&&now<snapshot.quote().expiresNanos()&&snapshot.balance()>=snapshot.quote().price();}
     public void receive(String json,long now){
         try {
@@ -27,7 +52,7 @@ public final class AtlasModel {
             if(integer(root,"v",1,1)!=1)throw new IllegalArgumentException("Protocol version mismatch");
             if(root.has("error")){notice=bounded(root,"error",256);state=State.ERROR;return;}
             if(root.has("notice")){notice=bounded(root,"notice",256);return;}
-            snapshot=parse(root,now);
+            snapshot=parse(root,now);receivedAt=now;
             if(snapshot.anchors().stream().noneMatch(a->a.id().equals(selected)))selected="";
             state=State.READY;if(notice.isEmpty()||notice.startsWith("Requesting"))notice=snapshot.tiles().isEmpty()?"No terrain yet. Explore, then refresh.":"Shared map updated";
         }catch(RuntimeException e){state=State.ERROR;notice="Invalid map reply. Refresh to retry.";}

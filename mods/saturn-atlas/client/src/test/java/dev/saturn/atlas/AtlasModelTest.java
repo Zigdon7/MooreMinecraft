@@ -18,4 +18,32 @@ class AtlasModelTest {
  @Test void outOfViewportAndDuplicateTilesRejected(){var b=base();var t=JsonParser.parseString("{\"x\":-1,\"z\":-2,\"pixels\":[6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6]}").getAsJsonObject();b.getAsJsonArray("tiles").add(t);var m=new AtlasModel();m.receive(b.toString(),0);assertEquals(AtlasModel.State.READY,m.state);b.getAsJsonArray("tiles").add(t);m.receive(b.toString(),0);assertEquals(AtlasModel.State.ERROR,m.state);t.addProperty("x",10000);b.getAsJsonArray("tiles").remove(1);m.receive(b.toString(),0);assertEquals(AtlasModel.State.ERROR,m.state);}
  @Test void disconnectedStateCannotLeakAnotherServersMap(){var m=new AtlasModel();m.receive(base().toString(),0);m.reset();assertNull(m.snapshot);assertEquals(AtlasModel.State.IDLE,m.state);assertFalse(m.canConfirm(0));}
  @Test void replySizeIsBounded(){var m=new AtlasModel();m.receive("x".repeat(32001),0);assertEquals(AtlasModel.State.ERROR,m.state);}
+ @org.junit.jupiter.api.Test void travelHintExplainsEveryBlockedAction(){
+  var m=new AtlasModel();assertEquals("Choose a destination",m.travelHint(0));
+  var p=new AtlasModel.Point("a","Home",0,0);m.selected="a";
+  m.snapshot=new AtlasModel.Snapshot("world",0,0,0,java.util.List.of(),java.util.List.of(p),java.util.List.of(),null);
+  assertEquals("Refresh map to quote",m.travelHint(0));m.state=AtlasModel.State.READY;
+  assertEquals("Get a travel quote",m.travelHint(0));
+  m.snapshot=new AtlasModel.Snapshot("world",0,0,0,java.util.List.of(),java.util.List.of(p),java.util.List.of(),new AtlasModel.Quote("a",3,100));
+  assertEquals("Need 3 shards",m.travelHint(0));assertFalse(m.canConfirm(0));
+  assertEquals("Quote expired: get quote",m.travelHint(100));
+  m.snapshot=new AtlasModel.Snapshot("world",0,0,4,java.util.List.of(),java.util.List.of(p),java.util.List.of(),new AtlasModel.Quote("a",3,100));
+  assertEquals("Travel: 3 shards",m.travelHint(0));assertTrue(m.canConfirm(0));
+ }
+ @Test void staleAndFailedSnapshotsRemainExplicitAndRecover(){
+  var m=new AtlasModel();assertEquals("No map data",m.freshness(0));m.receive(base().toString(),100);
+  assertEquals("Map current",m.freshness(100));assertEquals("Stale: refresh map",m.freshness(15_000_000_101L));
+  m.request(20_000_000_000L);assertEquals("Updating map",m.freshness(20_000_000_001L));m.tick(28_000_000_000L);
+  assertEquals("Stale: no server reply",m.freshness(28_000_000_000L));assertNotNull(m.snapshot);
+  m.receive("{",30_000_000_000L);assertTrue(m.freshness(30_000_000_000L).startsWith("Error:"));assertNotNull(m.snapshot);
+  m.receive(base().toString(),31_000_000_000L);assertEquals("Map current",m.freshness(31_000_000_000L));
+ }
+ @Test void textualMapDescribesHeadingDirectionDistanceAndNegativeCoordinates(){
+  var m=new AtlasModel();m.receive(base().toString(),0);
+  assertTrue(m.describe(-0.5,-16.5,0).contains("Position -1, -17. Facing south"));
+  assertTrue(m.describe(0,0,-90).contains("Facing east"));assertTrue(m.describe(0,0,180).contains("Facing north"));
+  var p=new AtlasModel.Point("id","Long marker name",-3,-4);
+  assertEquals("Long marker name, 5 blocks northwest, coordinates -3, -4",AtlasModel.describePoint(p,0,0));
+  assertTrue(AtlasModel.describePoint(new AtlasModel.Point("id","Here",0,0),0,0).contains("blocks here"));
+ }
 }

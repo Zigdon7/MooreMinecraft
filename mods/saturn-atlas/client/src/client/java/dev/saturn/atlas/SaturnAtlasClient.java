@@ -15,6 +15,7 @@ import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
@@ -25,7 +26,12 @@ import net.minecraft.resources.Identifier;
 /** Optional client; no authoritative pricing, permissions or teleport decisions. */
 public final class SaturnAtlasClient implements ClientModInitializer {
     static final AtlasModel model=new AtlasModel();
-    static KeyMapping openKey;
+    static KeyMapping openKey,describeKey,toggleHudKey;
+    static AtlasPreferences preferences=new AtlasPreferences();
+    static java.nio.file.Path preferencesFile;
+    static String preferenceNotice="";
+    static void savePreferences(){try{preferences.save(preferencesFile);preferenceNotice="Saved locally";}catch(java.io.IOException e){preferenceNotice="Could not save HUD settings; changes apply this session only";}}
+    static String describePlayer(){var c=Minecraft.getInstance();return c.player==null?"Not connected":model.describe(c.player.getX(),c.player.getZ(),c.player.getYRot());}
     static final AtlasHud hud=new AtlasHud();
     static KeyMapping createOpenKey(){return new KeyMapping("key.saturn_atlas.open",InputConstants.KEY_M,KeyMapping.Category.MISC);}
     static void openMap(){Minecraft.getInstance().gui.setScreen(new AtlasScreen());request("atlas sync");}
@@ -39,10 +45,17 @@ public final class SaturnAtlasClient implements ClientModInitializer {
         @Override public Type<? extends CustomPacketPayload> type(){return TYPE;}
     }
     @Override public void onInitializeClient(){
+        preferencesFile=net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve("saturn-atlas.properties");
+        preferences=AtlasPreferences.load(preferencesFile);
         openKey=KeyMappingHelper.registerKeyMapping(createOpenKey());
+        describeKey=KeyMappingHelper.registerKeyMapping(new KeyMapping("key.saturn_atlas.describe",-1,KeyMapping.Category.MISC));
+        toggleHudKey=KeyMappingHelper.registerKeyMapping(new KeyMapping("key.saturn_atlas.toggle_hud",-1,KeyMapping.Category.MISC));
         ClientTickEvents.END_CLIENT_TICK.register(client->{
             while(openKey.consumeClick())if(client.player!=null&&client.gui.screen()==null)openMap();
+            while(toggleHudKey.consumeClick()){preferences.visible=!preferences.visible;savePreferences();}
+            while(describeKey.consumeClick())if(client.player!=null&&client.gui.screen()==null)client.gui.setScreen(new AtlasDetailsScreen(null,-1));
             long now=System.nanoTime();
+            model.tick(now);
             if(hud.due(now,client.player!=null&&client.getConnection()!=null,model.snapshot!=null,client.gui.screen()==null||client.gui.screen() instanceof AtlasScreen))client.getConnection().sendCommand("atlas sync");
         });
         HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("saturn","minimap"),(graphics,delta)->drawMinimap(graphics));
@@ -50,6 +63,7 @@ public final class SaturnAtlasClient implements ClientModInitializer {
         ClientPlayNetworking.registerGlobalReceiver(AtlasPayload.TYPE,(payload,context)->context.client().execute(()->{
             model.receive(payload.json(),System.nanoTime());hud.reply(System.nanoTime());
             if(Minecraft.getInstance().gui.screen() instanceof AtlasScreen screen)screen.rebuild();
+            else if(Minecraft.getInstance().gui.screen() instanceof AtlasDetailsScreen screen)screen.rebuild();
         }));
         ClientPlayConnectionEvents.DISCONNECT.register((handler,client)->{model.reset();hud.reset();});
         ClientCommandRegistrationCallback.EVENT.register((dispatcher,access)->dispatcher.register(literal("saturnmap").executes(context->{Minecraft.getInstance().execute(()->{openMap();});return 1;})));
@@ -57,42 +71,142 @@ public final class SaturnAtlasClient implements ClientModInitializer {
 
     static void drawMinimap(GuiGraphicsExtractor g){
         var c=Minecraft.getInstance();var s=model.snapshot;
-        if(c.player==null||c.gui.screen()!=null||c.gui.hud.isHidden()||s==null)return;
-        var r=AtlasHud.bounds(g.guiWidth(),g.guiHeight());var v=AtlasViewport.of(c.player.getX(),c.player.getZ(),r.w(),r.h());
+        if(c.player==null||c.gui.screen()!=null||c.gui.hud.isHidden()||s==null||!preferences.visible)return;
+        var r=AtlasHud.bounds(g.guiWidth(),g.guiHeight(),preferences.size,preferences.corner);
+        if(preferences.text){
+            int textWidth=Math.min(200,g.guiWidth()-16),tx=preferences.corner%2==1?8:g.guiWidth()-textWidth-8,ty=preferences.corner>=2?g.guiHeight()-54:8;
+            g.fill(tx-2,ty-2,tx+textWidth+2,ty+45,0xee111b28);
+            g.text(c.font,c.font.plainSubstrByWidth(model.freshness(System.nanoTime()),textWidth),tx,ty,0xffffffff,true);
+            g.text(c.font,c.font.plainSubstrByWidth("X "+(int)c.player.getX()+"  Z "+(int)c.player.getZ(),textWidth),tx,ty+12,0xffedf5fa,true);
+            var points=new java.util.ArrayList<AtlasModel.Point>(s.anchors());points.addAll(s.markers());
+            points.stream().min(java.util.Comparator.comparingDouble(p->Math.hypot(p.x()-c.player.getX(),p.z()-c.player.getZ()))).ifPresent(p->g.text(c.font,c.font.plainSubstrByWidth(AtlasModel.describePoint(p,c.player.getX(),c.player.getZ()),textWidth),tx,ty+24,0xffedf5fa,true));
+            g.text(c.font,c.font.plainSubstrByWidth(openHint()+": Atlas > Text for all points",textWidth),tx,ty+36,0xffedf5fa,true);return;
+        }
+        var v=AtlasViewport.of(c.player.getX(),c.player.getZ(),r.w(),r.h());
         g.fill(r.x()-2,r.y()-2,r.right()+2,r.bottom()+2,0xee4a6d7a);g.fill(r.x(),r.y(),r.right(),r.bottom(),0xee172735);
         g.enableScissor(r.x(),r.y(),r.right(),r.bottom());
         for(var t:s.tiles())for(int i=0;i<16;i++){int px=r.x()+v.x(t.x()*16+(i%4)*4),py=r.y()+v.z(t.z()*16+(i/4)*4);int cell=(int)Math.ceil(4*v.scale());g.fill(px,py,px+cell,py+cell,AtlasScreen.color(t.pixels()[i]));}
         for(var p:s.markers())AtlasScreen.point(g,p,r.x(),r.y(),v.startX(),v.startZ(),v.scale(),r.w(),r.h(),0xffffd56a);
         for(var p:s.anchors())AtlasScreen.point(g,p,r.x(),r.y(),v.startX(),v.startZ(),v.scale(),r.w(),r.h(),0xff8aeeff);
-        int px=r.x()+v.x(c.player.getX()),py=r.y()+v.z(c.player.getZ());g.fill(px-1,py-1,px+2,py+2,0xffff6868);
-        g.disableScissor();g.text(c.font,"N",r.x()+r.w()/2-3,r.y()+3,0xffffffff,true);g.text(c.font,"M: Atlas",r.x(),r.bottom()+4,0xffcde3ea,true);
+        int px=r.x()+v.x(c.player.getX()),py=r.y()+v.z(c.player.getZ());AtlasScreen.player(g,px,py);
+        g.disableScissor();
+        g.fill(r.x(),r.y(),r.right(),r.y()+11,0xdd111b28);
+        g.text(c.font,c.font.plainSubstrByWidth(model.freshness(System.nanoTime()),r.w()-4),r.x()+2,r.y()+2,0xffffffff,true);
+        g.text(c.font,"N",r.x()+r.w()/2-3,r.y()+14,0xffffffff,true);g.text(c.font,c.font.plainSubstrByWidth(openHint()+": Atlas",r.w()),r.x(),r.bottom()+4,0xffe1edf2,true);
+    }
+    static String openHint(){return openKey==null?"M":openKey.getTranslatedKeyMessage().getString();}
+    static abstract class AtlasUtilityScreen extends Screen {
+        final Screen parent;
+        AtlasUtilityScreen(String title,Screen parent){super(Component.literal(title));this.parent=parent;}
+        Button button(String label,int x,int y,int w,Runnable action){return addRenderableWidget(Button.builder(Component.literal(label),b->action.run()).bounds(x,y,w,20).build());}
+        Button button(String label,AtlasLayout.Rect r,Runnable action){return button(label,r.x(),r.y(),r.w(),action);}
+        @Override public void onClose(){Minecraft.getInstance().gui.setScreen(parent);}
+        void wrapped(GuiGraphicsExtractor g,String text,int x,int y,int w,int maxLines){
+            for(var line:font.split(Component.literal(text),Math.max(1,w))){if(maxLines--<=0)break;g.text(font,line,x,y,0xffedf5fa,false);y+=11;}
+        }
+        void background(GuiGraphicsExtractor g){g.fill(0,0,width,height,0xff111b28);g.text(font,title,12,12,0xffd8f9ff,true);}
+        @Override public boolean isPauseScreen(){return false;}
+    }
+    static final class AtlasOptionsScreen extends AtlasUtilityScreen {
+        AtlasOptionsScreen(Screen parent){super("Atlas HUD settings",parent);}
+        void changed(){int focus=children().indexOf(getFocused());savePreferences();clearWidgets();init();if(focus>=0&&focus<children().size())setFocused(children().get(focus));scheduleNarration();}
+        @Override protected void init(){
+            var r=AtlasLayout.utilityControls(width,height,true);
+            button("HUD: "+(preferences.visible?"Shown":"Hidden"),r[0],()->{preferences.visible=!preferences.visible;changed();});
+            button("Mode: "+(preferences.text?"Text":"Map"),r[1],()->{preferences.text=!preferences.text;changed();});
+            button("Size: "+new String[]{"Small","Medium","Large"}[preferences.size],r[2],()->{preferences.size=(preferences.size+1)%3;changed();});
+            button(preferences.cornerName(),r[3],()->{preferences.corner=(preferences.corner+1)%4;changed();});
+            button("Text / narrated map",r[4],()->Minecraft.getInstance().gui.setScreen(new AtlasDetailsScreen(this,-1)));
+            button("Back",r[5],this::onClose);
+        }
+        @Override public Component getNarrationMessage(){return Component.literal("Atlas HUD settings. Visibility, text mode, size, and corner are saved locally. Controls settings also offers rebindable Toggle Atlas HUD and Describe Atlas map keys. "+preferenceNotice);}
+        @Override public void extractRenderState(GuiGraphicsExtractor g,int x,int y,float delta){background(g);super.extractRenderState(g,x,y,delta);wrapped(g,preferenceNotice.isEmpty()?"Saved locally. More shortcuts in Controls.":preferenceNotice,12,112,width-24,Math.max(1,(height-144)/11));}
+    }
+    static final class AtlasDetailsScreen extends AtlasUtilityScreen {
+        final int index;
+        AtlasDetailsScreen(Screen parent,int index){super("Atlas text map",parent);this.index=index;}
+        java.util.List<AtlasModel.Point> points(){
+            if(model.snapshot==null)return java.util.List.of();
+            var result=new java.util.ArrayList<AtlasModel.Point>(model.snapshot.anchors());result.addAll(model.snapshot.markers());return result;
+        }
+        String current(){if(index<0)return describePlayer();var points=points();var c=Minecraft.getInstance();if(points.isEmpty()||c.player==null)return "No nearby points available. Open Atlas and Refresh.";
+            var p=points.get(Math.min(index,points.size()-1));String kind=model.snapshot.anchors().contains(p)?"Lodestone: ":"Marker: ";
+            return kind+AtlasModel.describePoint(p,c.player.getX(),c.player.getZ());
+        }
+        @Override public Component getNarrationMessage(){return Component.literal("Atlas text map. "+model.freshness(System.nanoTime())+". "+describePlayer()+" Point "+(points().isEmpty()?0:Math.min(index+1,points().size()))+" of "+points().size()+". "+current()+". Use Previous and Next to read every point.");}
+        void navigate(int delta){
+            int nextIndex=Math.clamp(index+delta,-1,Math.max(-1,points().size()-1));
+            var next=new AtlasDetailsScreen(parent,nextIndex);Minecraft.getInstance().gui.setScreen(next);
+            int focus=delta<0?0:1;
+            if(next.children().get(focus) instanceof Button b&&!b.active)focus=next.children().get(1-focus) instanceof Button other&&other.active?1-focus:2;
+            next.setFocused(next.children().get(focus));
+        }
+        void rebuild(){
+            int focus=children().indexOf(getFocused());clearWidgets();init();
+            if(focus>=0&&focus<children().size()&&children().get(focus) instanceof Button b&&b.active)setFocused(b);
+            else if(children().size()>2)setFocused(children().get(2));
+            scheduleNarration();
+        }
+        @Override protected void init(){
+            var r=AtlasLayout.utilityControls(width,height,false);
+            button("Previous page",r[0],()->navigate(-1)).active=index>=0;
+            button("Next point",r[1],()->navigate(1)).active=index+1<points().size();
+            button("Refresh map",r[2],()->{request("atlas sync");scheduleNarration();});
+            button("Back",r[3],this::onClose);
+        }
+        @Override public void extractRenderState(GuiGraphicsExtractor g,int x,int y,float delta){
+            background(g);super.extractRenderState(g,x,y,delta);
+            wrapped(g,model.freshness(System.nanoTime()),12,28,width-24,1);
+            wrapped(g,(index<0?"Overview. ":"Point "+Math.min(index+1,points().size())+" / "+points().size()+". ")+current(),12,40,width-24,Math.max(1,(height-86)/11));
+        }
     }
     static final class AtlasScreen extends Screen {
         AtlasLayout layout;Button quote,confirm;int page;
+        final java.util.Map<Button,String> focusKeys=new java.util.IdentityHashMap<>();
         AtlasScreen(){super(Component.literal("Saturn Atlas"));}
+        @Override public Component getNarrationMessage(){
+            String summary="Saturn Atlas. Tab or Shift Tab to navigate; Enter to activate; Escape to close. ";
+            if(layout!=null&&layout.compact())summary+="Compact destination list. ";
+            summary+=model.freshness(System.nanoTime())+". "+describePlayer();
+            if(model.state!=AtlasModel.State.READY)summary+=model.state==AtlasModel.State.WAITING?"Requesting shared map. ":model.notice+". ";
+            if(model.snapshot!=null)summary+=model.snapshot.anchors().size()+" accessible lodestones. Balance "+model.snapshot.balance()+" shards. "+model.travelHint(System.nanoTime());
+            return Component.literal(summary);
+        }
         @Override public boolean keyPressed(KeyEvent event){if(openKey!=null&&openKey.matches(event)){onClose();return true;}return super.keyPressed(event);}
-        void rebuild(){clearWidgets();init();}
-        Button add(String label,AtlasLayout.Rect r,Runnable action){return addRenderableWidget(Button.builder(Component.literal(label),b->action.run()).bounds(r.x(),r.y(),r.w(),r.h()).build());}
+        void rebuild(){
+            String focus=getFocused() instanceof Button b?focusKeys.get(b):null;
+            clearWidgets();focusKeys.clear();init();scheduleNarration();
+            if(focus!=null)for(var child:children())if(child instanceof Button b&&b.active&&focus.equals(focusKeys.get(b))){setFocused(b);break;}
+        }
+        Button add(String label,AtlasLayout.Rect r,Runnable action){return add(label,label,r,action);}
+        Button add(String label,String description,AtlasLayout.Rect r,Runnable action){
+            var button=Button.builder(Component.literal(label),b->action.run()).bounds(r.x(),r.y(),r.w(),r.h()).createNarration(defaultNarration->Component.literal(description)).build();
+            focusKeys.put(button,description.replaceFirst("^(Selected|Destination): ",""));
+            button.setTooltip(Tooltip.create(Component.literal(description)));return addRenderableWidget(button);
+        }
         @Override protected void init(){
-            quote=null;confirm=null;layout=AtlasLayout.of(width,height);
+            focusKeys.clear();quote=null;confirm=null;layout=AtlasLayout.of(width,height);
             add("Refresh",layout.refresh(),()->request("atlas sync"));
-            add("Close",layout.close(),this::onClose);
-            if(layout.compact())return;
-            add("Held Atlas",layout.held(),()->request("atlas view"));
-            quote=add("Get quote",layout.quote(),()->request("lodestone quote "+model.selected));
-            confirm=add("Travel",layout.confirm(),()->request("lodestone confirm"));
+
+            add("Text","Text and narrated map: position, heading, all nearby lodestones and markers",new AtlasLayout.Rect(width-108,7,46,18),()->Minecraft.getInstance().gui.setScreen(new AtlasDetailsScreen(this,-1)));
+            add("HUD","HUD visibility, text mode, size and placement",new AtlasLayout.Rect(width-58,7,46,18),()->Minecraft.getInstance().gui.setScreen(new AtlasOptionsScreen(this)));
+            if(!layout.compact())add("Held Atlas","View the map stored in your held atlas item",layout.held(),()->request("atlas view"));
+            quote=add("Get quote","Request the server price for the selected lodestone",layout.quote(),()->request("lodestone quote "+model.selected));
+            confirm=add("Travel","Travel requires an unexpired quote and enough shards",layout.confirm(),()->request("lodestone confirm"));
             if(model.snapshot!=null){
+                boolean inline=layout.compact()&&height<160;
                 int rows=Math.max(1,(layout.sidebar().h()-24)/23);var anchors=model.snapshot.anchors();
                 int pages=Math.max(1,(anchors.size()+rows-1)/rows);page=Math.min(page,pages-1);
                 for(int i=page*rows;i<Math.min(anchors.size(),(page+1)*rows);i++){
                     var a=anchors.get(i);String label=(a.id().equals(model.selected)?"> ":"")+a.name();int row=i-page*rows;
-                    add(font.plainSubstrByWidth(label,layout.sidebar().w()-12),new AtlasLayout.Rect(layout.sidebar().x(),layout.sidebar().y()+row*23,layout.sidebar().w(),20),()->{model.selected=a.id();rebuild();});
+                    add(font.plainSubstrByWidth(label,layout.sidebar().w()-(inline?116:12)), (a.id().equals(model.selected)?"Selected: ":"Destination: ")+a.name()+" ("+(int)a.x()+", "+(int)a.z()+")",new AtlasLayout.Rect(layout.sidebar().x()+(inline?52:0),layout.sidebar().y()+row*23,layout.sidebar().w()-(inline?104:0),20),()->{model.selected=a.id();rebuild();});
                 }
-                if(pages>1){int y=layout.sidebar().bottom()-20;add("<",new AtlasLayout.Rect(layout.sidebar().x(),y,28,20),()->{page=Math.max(0,page-1);rebuild();});add(">",new AtlasLayout.Rect(layout.sidebar().right()-28,y,28,20),()->{page=Math.min(pages-1,page+1);rebuild();});}
+                if(pages>1){int y=inline?layout.sidebar().y():layout.sidebar().bottom()-20;add("Prev","Previous destinations",new AtlasLayout.Rect(layout.sidebar().x(),y,46,20),()->{page=Math.max(0,page-1);rebuild();});add("Next","Next destinations",new AtlasLayout.Rect(layout.sidebar().right()-46,y,46,20),()->{page=Math.min(pages-1,page+1);rebuild();});}
             }
+            add("Close",layout.close(),this::onClose);
             controls();
         }
-        void controls(){if(quote!=null)quote.active=model.canQuote();if(confirm!=null)confirm.active=model.canConfirm(System.nanoTime());}
+        void controls(){if(quote!=null)quote.active=model.canQuote();if(confirm!=null){confirm.active=model.canConfirm(System.nanoTime());confirm.setTooltip(Tooltip.create(Component.literal(model.travelHint(System.nanoTime()))));}}
         @Override public void tick(){super.tick();model.tick(System.nanoTime());controls();}
         void lines(GuiGraphicsExtractor g,String text,int x,int y,int maxWidth,int maxLines,int color){
             String remaining=text;
@@ -103,21 +217,34 @@ public final class SaturnAtlasClient implements ClientModInitializer {
             }
         }
         @Override public void extractRenderState(GuiGraphicsExtractor g,int mouseX,int mouseY,float delta){
-            g.fill(0,0,width,height,0xff111b28);super.extractRenderState(g,mouseX,mouseY,delta);
-            g.fill(8,6,width-8,26,0xff1c3544);g.text(font,"SATURN ATLAS  ·  M / Esc to close",14,12,0xffa8edf0,true);
-            if(layout.compact()){lines(g,"Window too small. Lower GUI Scale in Video Settings.",12,65,width-24,4,0xffffcf80);return;}
+            g.fill(0,0,width,height,0xff111b28);g.fill(8,6,width-8,26,0xff1c3544);super.extractRenderState(g,mouseX,mouseY,delta);
+            g.text(font,font.plainSubstrByWidth("ATLAS | "+openHint()+" / Esc: Close | Tab",Math.max(0,width-130)),14,12,0xffd8f9ff,true);
+            if(layout.compact()){
+                g.text(font,"LODESTONES (compact list)",12,27,0xffd8f9ff,false);
+                g.text(font,font.plainSubstrByWidth(model.freshness(System.nanoTime())+" | "+model.travelHint(System.nanoTime()),width-24),12,height-76,0xffffcf80,false);
+                g.text(font,"Balance: "+(model.snapshot==null?"?":model.snapshot.balance())+" shards",12,height-64,0xffedf5fa,false);
+                if(model.snapshot==null||model.snapshot.anchors().isEmpty())lines(g,model.snapshot==null?"No map data. Refresh to retry.":"No accessible lodestones.",12,40,width-24,2,0xffedf5fa);
+                if(model.snapshot!=null)drawPageCount(g,model.snapshot);return;
+            }
             var map=layout.map();int left=map.x(),top=map.y(),size=map.w();
             g.fill(left-1,top-1,map.right()+1,map.bottom()+1,0xff53737f);g.fill(left,top,map.right(),map.bottom(),0xff172735);
             g.text(font,"LODESTONES",layout.sidebar().x(),27,0xffa8edf0,false);
             if(model.snapshot!=null){
                 var s=model.snapshot;var view=AtlasViewport.of(s.x(),s.z(),map.w(),map.h());
                 double startX=view.startX(),startZ=view.startZ(),scale=view.scale();
+                g.enableScissor(left,top,map.right(),map.bottom());
                 for(var t:s.tiles()){for(int i=0;i<16;i++){int px=(int)((t.x()*16+(i%4)*4-startX)*scale),py=(int)((t.z()*16+(i/4)*4-startZ)*scale);g.fill(left+px,top+py,Math.min(map.right(),left+px+(int)Math.ceil(4*scale)),Math.min(map.bottom(),top+py+(int)Math.ceil(4*scale)),color(t.pixels()[i]));}}
                 for(var p:s.markers())point(g,p,left,top,startX,startZ,scale,map.w(),map.h(),0xffffd56a);
                 for(var p:s.anchors())point(g,p,left,top,startX,startZ,scale,map.w(),map.h(),0xff8aeeff);
-                int px=left+(int)((s.x()-startX)*scale),py=top+(int)((s.z()-startZ)*scale);g.fill(px-2,py-2,px+3,py+3,0xffff6868);
+                int px=left+(int)((s.x()-startX)*scale),py=top+(int)((s.z()-startZ)*scale);player(g,px,py);
+                g.disableScissor();
+                g.fill(map.right()-14,top+3,map.right()-3,top+15,0xee111b28);
+                g.text(font,"N",map.right()-11,top+5,0xffffffff,true);
+                g.fill(left+3,map.bottom()-14,map.right()-3,map.bottom()-2,0xee111b28);
+                g.text(font,font.plainSubstrByWidth("+ You   [] Stone   <> Marker",size-12),left+6,map.bottom()-12,0xffedf5fa,true);
                 if(s.anchors().isEmpty())lines(g,"No accessible lodestones. Place a lodestone, then use /lodestone create <name>.",layout.sidebar().x(),42,layout.sidebar().w(),4,0xffbac7d5);
-                String cost=s.quote()!=null&&s.quote().destination().equals(model.selected)?"Quote: "+s.quote().price()+" shards":"Choose a destination";
+                drawPageCount(g,s);
+                String cost=model.travelHint(System.nanoTime());
                 g.text(font,font.plainSubstrByWidth(cost,layout.sidebar().w()),layout.sidebar().x(),height-76,0xffffcf80,false);
                 g.text(font,"Balance: "+s.balance()+" shards",layout.sidebar().x(),height-64,0xffbac7d5,false);
                 if(s.tiles().isEmpty())lines(g,"No explored terrain yet. Explore nearby, then Refresh.",left+8,top+12,size-16,4,0xffbac7d5);
@@ -129,10 +256,17 @@ public final class SaturnAtlasClient implements ClientModInitializer {
             }
             // Error/waiting notices render inside the map; footer is reserved for controls.
         }
+        void drawPageCount(GuiGraphicsExtractor g,AtlasModel.Snapshot s){
+            int rows=Math.max(1,(layout.sidebar().h()-24)/23);
+            if(!(layout.compact()&&height<160)&&s.anchors().size()>rows)g.text(font,(page+1)+"/"+((s.anchors().size()+rows-1)/rows),layout.sidebar().x()+54,layout.sidebar().bottom()-14,0xffedf5fa,false);
+        }
+        static void player(GuiGraphicsExtractor g,int x,int y){g.fill(x-4,y-1,x+5,y+2,0xff111b28);g.fill(x-1,y-4,x+2,y+5,0xff111b28);g.fill(x-3,y,x+4,y+1,0xffffffff);g.fill(x,y-3,x+1,y+4,0xffffffff);}
         static int color(int p){return switch(p){case 6->0xff77a84d;case 10->0xffd9ce92;case 34->0xffe5eff3;case 42->0xff8a6849;case 50->0xff466dae;case 18->0xffd16835;default->0xff8b8d91;};}
         static void point(GuiGraphicsExtractor g,AtlasModel.Point p,int left,int top,double sx,double sz,double scale,int mapWidth,int mapHeight,int color){
             int px=(int)((p.x()-sx)*scale),py=(int)((p.z()-sz)*scale);if(px<3||py<3||px>=mapWidth-3||py>=mapHeight-3)return;
-            for(int d=-3;d<=3;d++){int e=3-Math.abs(d);g.fill(left+px+d,top+py-e,left+px+d+1,top+py-e+1,color);g.fill(left+px+d,top+py+e,left+px+d+1,top+py+e+1,color);}
+            g.fill(left+px-4,top+py-4,left+px+5,top+py+5,0xff111b28);
+            for(int d=-3;d<=3;d++){int e=color==0xff8aeeff?3:3-Math.abs(d);g.fill(left+px+d,top+py-e,left+px+d+1,top+py-e+1,color);g.fill(left+px+d,top+py+e,left+px+d+1,top+py+e+1,color);}
+            if(color==0xff8aeeff){g.fill(left+px-3,top+py-3,left+px-2,top+py+4,color);g.fill(left+px+3,top+py-3,left+px+4,top+py+4,color);}
             g.fill(left+px,top+py,left+px+1,top+py+1,0xffffffff);
         }
         @Override public boolean isPauseScreen(){return false;}

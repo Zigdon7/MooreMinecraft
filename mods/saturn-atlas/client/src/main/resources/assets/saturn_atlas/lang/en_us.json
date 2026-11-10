@@ -1,1 +1,5 @@
-{"key.saturn_atlas.open":"Open Saturn Atlas"}
+{
+  "key.saturn_atlas.open": "Open Saturn Atlas",
+  "key.saturn_atlas.describe": "Describe Atlas map (text and narration)",
+  "key.saturn_atlas.toggle_hud": "Toggle Atlas HUD"
+}
