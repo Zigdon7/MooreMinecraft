@@ -15,7 +15,7 @@ sealed class ManagerForm : Form
     readonly Button check = ActionButton("&Check for updates", "Check for updates");
     readonly Button install = ActionButton("&Install update", "Install checked update");
     readonly Button rollback = ActionButton("&Restore previous mods…", "Restore previous managed mod set");
-    readonly Button cancel = ActionButton("&Cancel operation", "Cancel current operation safely");
+    readonly Button cancel = ActionButton("Ca&ncel operation", "Cancel current operation safely");
     readonly CheckBox detailsToggle = new() { Text = "Show &technical details", AutoSize = true, AccessibleName = "Show technical details" };
     readonly ListView mods = new() { Dock = DockStyle.Top, View = View.Details, FullRowSelect = true, Height = 144, AccessibleName = "Verified release files", AccessibleDescription = "Mod ID, release, filename and download size." };
     readonly TextBox output = new() { Dock = DockStyle.Top, Height = 130, ReadOnly = true, Multiline = true, ScrollBars = ScrollBars.Vertical, AccessibleName = "Operation details log" };
@@ -28,6 +28,9 @@ sealed class ManagerForm : Form
     readonly ProgressBar progress = new() { Dock = DockStyle.Top, Height = 8, Visible = false, Style = ProgressBarStyle.Marquee, AccessibleName = "Operation in progress" };
     readonly TableLayoutPanel details = Stack();
     readonly TableLayoutPanel page = Stack();
+    readonly TableLayoutPanel overview = Stack();
+    TableLayoutPanel? folderSection, releaseSection;
+    bool wideOverview;
     readonly Panel scroll = new() { Dock = DockStyle.Fill, AutoScroll = true };
     readonly ToolTip hints = new() { AutoPopDelay = 20000 };
     readonly GitHubSource source = new();
@@ -52,17 +55,17 @@ sealed class ManagerForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = SystemColors.Control;
         ForeColor = SystemColors.ControlText;
-        page.Padding = new Padding(28, 22, 28, 22);
+        page.Padding = new Padding(24, 18, 24, 18);
         page.Dock = DockStyle.Top;
         page.AutoSizeMode = AutoSizeMode.GrowAndShrink;
         scroll.Controls.Add(page);
         Controls.Add(scroll);
-        scroll.ClientSizeChanged += (_, _) => { page.Width = Math.Max(260, scroll.ClientSize.Width - SystemInformation.VerticalScrollBarWidth); WrapLabels(page); ResizeColumns(); };
+        scroll.ClientSizeChanged += (_, _) => { page.Width = Math.Max(260, scroll.ClientSize.Width - SystemInformation.VerticalScrollBarWidth); ArrangeOverview(); WrapLabels(page); ResizeColumns(); };
 
         var header = Stack();
         header.Margin = new Padding(0, 0, 0, 18);
-        Add(header, Copy("SATURN", 11, true));
-        Add(header, Copy("Your next adventure, up to date.", 24, true));
+        Add(header, Copy("SATURN  /  MOD MANAGER", 10, true));
+        Add(header, Copy("Ready for your next adventure.", 22, true));
         Add(header, Copy("MOD MANAGER  /  STAGING TEST CHANNEL", 10, true));
         Add(header, Copy("Update your Saturn mods in a few steps. Your worlds and unrelated mods stay untouched."));
         Add(page, header);
@@ -75,14 +78,15 @@ sealed class ManagerForm : Form
         Add(folderCard, folderActions);
         Add(folderCard, Copy("Use the game directory shown in your launcher’s Fabric profile — not the launcher installation folder."));
         Add(folderCard, installed);
-        Add(page, folderCard);
+        folderSection = folderCard;
+        Add(page, overview);
 
         var releaseCard = Card("2  Review the staging update");
         Add(releaseCard, release);
         Add(releaseCard, requirements);
         Add(releaseCard, contents);
         Add(releaseCard, Actions(check));
-        Add(page, releaseCard);
+        releaseSection = releaseCard; ArrangeOverview();
 
         var installCard = Card("3  Update, then launch Minecraft");
         Add(installCard, Copy("Close Minecraft before installing or restoring mods. Open files can interrupt the update."));
@@ -116,8 +120,8 @@ sealed class ManagerForm : Form
         profile.Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), ".minecraft");
         manifest.Text = DefaultManifest;
         if (!preview) RestoreSettings();
-        profile.TextChanged += (_, _) => { if (!updatingPreview) { RefreshInstalled(); UpdateActions(); } };
-        manifest.TextChanged += (_, _) => { if (!updatingPreview) { pack = null; ShowRelease(); UpdateActions(); SetStatus("Source changed — check for updates again."); } };
+        profile.TextChanged += (_, _) => { if (!updatingPreview) { completedProfile = completedVersion = null; RefreshInstalled(); UpdateActions(); SetStatus("Game folder changed — review the selected folder before installing."); } };
+        manifest.TextChanged += (_, _) => { if (!updatingPreview) { completedProfile = completedVersion = null; pack = null; ShowRelease(); UpdateActions(); SetStatus("Source changed — check for updates again."); } };
         browse.Click += (_, _) => {
             if (preview) return;
             using var dialog = new FolderBrowserDialog { Description = "Choose your Fabric profile’s game directory", ShowNewFolderButton = false, SelectedPath = profile.Text };
@@ -149,7 +153,7 @@ sealed class ManagerForm : Form
             if (MessageBox.Show(this, $"{summary}\n\nGame folder:\n{path}\n\nClose Minecraft first. This restores the previous managed mod set, not your world.", "Restore previous mods?", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
             await Run(rollback, "Restoring the previous mod set…", async token => {
                 await Task.Run(() => new Installer(path, source, Log).Rollback(), token);
-                RefreshInstalled(); SetStatus("Previous mods restored — you can launch Minecraft.");
+                completedProfile = completedVersion = null; RefreshInstalled(); SetStatus("Previous mods restored — you can launch Minecraft.");
             });
         };
         cancel.Click += (_, _) => { cancellation?.Cancel(); cancel.Enabled = false; SetStatus("Cancellation requested — waiting for file recovery to finish."); };
@@ -161,7 +165,7 @@ sealed class ManagerForm : Form
         // Offline visual/accessibility fixture only: never fetches or mutates a user's game directory.
         if (preview) ConfigurePreview(args);
         SetTabOrder(page);
-        Shown += (_, _) => { WrapLabels(page); ResizeColumns(); profile.Focus(); };
+        Shown += (_, _) => { ArrangeOverview(); WrapLabels(page); ResizeColumns(); profile.Focus(); };
     }
 
     static Button ActionButton(string text, string name) => new() { Text = text, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(12, 7, 12, 7), Margin = new Padding(0, 4, 10, 4), UseVisualStyleBackColor = true, AccessibleName = name };
@@ -171,7 +175,8 @@ sealed class ManagerForm : Form
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); return panel;
     }
     static TableLayoutPanel Card(string title) {
-        var panel = Stack(); panel.Padding = new Padding(20, 14, 20, 14); panel.Margin = new Padding(0, 0, 0, 14);
+        var panel = Stack(); panel.Padding = new Padding(16, 12, 16, 12); panel.Margin = new Padding(0, 0, 0, 12);
+        panel.SizeChanged += (_, _) => WrapLabels(panel);
         panel.BackColor = SystemColors.Window; panel.ForeColor = SystemColors.WindowText;
         Add(panel, Copy(title, 12, true)); return panel;
     }
@@ -262,6 +267,7 @@ sealed class ManagerForm : Form
             ShowRelease(); nextStep.Text = "Next: close Minecraft, then install the checked update.";
             status.Text = state switch { "busy" => "Updating mods — downloading and verifying files…", "success" => "Update complete — launch your Fabric profile and join staging.", "error" => "Could not download the update. Check your connection, then try again.", _ => "Release checked — review the versions above, then install." };
         }
+        if (state == "success") { installed.Text = "Installed: 0.1.3-preview. Your last managed update is recorded."; nextStep.Text = "Next: launch your Fabric profile. This update is installed."; }
         if (state == "details") detailsToggle.Checked = true;
         busy = state == "busy"; progress.Visible = busy; cancel.Visible = busy; cancel.Enabled = busy;
         browse.Enabled = check.Enabled = profile.Enabled = manifest.Enabled = !busy;
@@ -271,9 +277,26 @@ sealed class ManagerForm : Form
         if (args.Contains("--narrow")) Size = new Size(660, 720);
         updatingPreview = false;
     }
+    void ArrangeOverview() {
+        if (folderSection is null || releaseSection is null) return;
+        bool wide = page.Width - page.Padding.Horizontal >= 780;
+        if (overview.Controls.Count != 0 && wide == wideOverview) return;
+        overview.SuspendLayout(); overview.Controls.Clear(); overview.ColumnStyles.Clear(); overview.RowStyles.Clear();
+        wideOverview = wide; overview.ColumnCount = wide ? 2 : 1; overview.RowCount = wide ? 1 : 2;
+        overview.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, wide ? 50 : 100));
+        if (wide) overview.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        overview.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        if (!wide) overview.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        folderSection.Margin = new Padding(0, 0, wide ? 12 : 0, 12);
+        overview.Controls.Add(folderSection, 0, 0); overview.Controls.Add(releaseSection, wide ? 1 : 0, wide ? 0 : 1);
+        overview.ResumeLayout(true); SetTabOrder(page);
+    }
     static void EnlargeText(Control control) {
-        // Explicit label fonts must grow too; this is a text-size stress fixture, not a DPI claim.
-        foreach (Control child in control.Controls) { child.Font = new Font(child.Font.FontFamily, child.Font.Size * 1.5f, child.Font.Style); EnlargeText(child); }
+        // Snapshot before mutating parents: inherited fonts must not compound by nesting depth.
+        var fonts = new Dictionary<Control, Font>();
+        void Snapshot(Control c) { fonts[c] = c.Font; foreach (Control child in c.Controls) Snapshot(child); }
+        Snapshot(control);
+        foreach (var item in fonts) item.Key.Font = new Font(item.Value.FontFamily, item.Value.Size * 1.5f, item.Value.Style);
     }
     sealed record Saved(string Profile, string Manifest);
 }
