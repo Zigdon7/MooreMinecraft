@@ -37,7 +37,11 @@ $cases = @(
  @{name="error"; args="--ui-preview error"},
  @{name="details"; args="--ui-preview details"},
  @{name="narrow"; args="--ui-preview checked --narrow"},
- @{name="large-text"; args="--ui-preview checked --large-text"}
+ @{name="large-text"; args="--ui-preview checked --large-text"},
+ @{name="narrow-large-text"; args="--ui-preview checked --narrow --large-text"},
+ @{name="narrow-busy-large-text"; args="--ui-preview busy --narrow --large-text"},
+ @{name="narrow-error-large-text"; args="--ui-preview error --narrow --large-text"},
+ @{name="long-values"; args="--ui-preview checked --long-values --narrow"}
 )
 foreach ($case in $cases) {
  [Environment]::SetEnvironmentVariable("SATURN_UI_TRACE_FILE", (Join-Path $evidence "$($case.name)-focus-trace.txt"))
@@ -55,13 +59,13 @@ foreach ($case in $cases) {
    $rows += [pscustomobject]@{name=$c.Name; type=$c.ControlType.ProgrammaticName; enabled=$c.IsEnabled; offscreen=$c.IsOffscreen; bounds=$c.BoundingRectangle.ToString()}
   }
   $rows | ConvertTo-Json -Depth 3 | Set-Content (Join-Path $evidence "$($case.name)-uia.json")
-  $installName = if ($case.name -eq "success") { "Reinstall checked update" } elseif ($case.name -eq "error") { "Retry checked installation" } else { "Install checked update" }
+  $installName = if ($case.name -eq "success") { "Reinstall checked update" } elseif ($case.name -like "*error*") { "Retry checked installation" } else { "Install checked update" }
   foreach ($name in @("Check for updates", $installName, "Update status")) {
    if (-not ($rows | Where-Object {$_.name -eq $name})) { throw "Accessible control missing: $name in $($case.name)" }
   }
   $installRow = $rows | Where-Object {$_.name -eq $installName} | Select-Object -First 1
   if ($installRow.offscreen) { throw "Primary install action is below the viewport: $($case.name)" }
-  if ($case.name -eq "busy") {
+  if ($case.name -like "*busy*") {
    $cancelRow = $rows | Where-Object {$_.name -eq "Cancel current operation safely"} | Select-Object -First 1
    if (-not $cancelRow.enabled -or $cancelRow.offscreen) { throw "Busy cancellation is not visible/enabled" }
   }

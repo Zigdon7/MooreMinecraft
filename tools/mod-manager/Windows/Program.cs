@@ -23,7 +23,7 @@ sealed class ManagerForm : Form
     readonly Label requirements = Copy("Check the staging release to see its Minecraft and Fabric versions.");
     readonly Label contents = Copy("Your Atlas companion and required dependencies will appear here.");
     readonly Label installed = Copy("Select your Fabric profile’s game folder below.");
-    readonly Label status = Copy("Ready — choose your game folder, then check for updates.");
+    readonly Label status = Copy("No changes have been made.");
     readonly Label nextStep = Copy("Next: check for updates. Nothing will be installed during this check.");
     readonly ProgressBar progress = new() { Dock = DockStyle.Top, Height = 8, Visible = false, Style = ProgressBarStyle.Marquee, AccessibleName = "Operation in progress" };
     readonly TableLayoutPanel details = Stack();
@@ -46,7 +46,7 @@ sealed class ManagerForm : Form
     bool busy;
     bool failedInstallation;
     Label? actionHeading;
-    readonly Label logHint = Copy("No operation details yet. Check for updates to start a log.");
+    readonly Label logHint = Copy("No additional operation details recorded.");
     bool updatingPreview;
     string? completedProfile;
     string? completedVersion;
@@ -159,7 +159,7 @@ sealed class ManagerForm : Form
             var fetched = await source.Fetch(manifest.Text.Trim(), token);
             pack = fetched; ShowRelease(); Save();
             Log($"Checked {pack.Version}: {pack.Mods.Count} pinned, checksummed files.");
-            SetStatus("Release checked — review the versions above, then install.");
+            SetStatus($"Release lists {pack.Mods.Count} pinned, checksummed files. Nothing installed yet.");
         });
         install.Click += async (_, _) => {
             if (preview || pack is null || !Directory.Exists(profile.Text.Trim())) return;
@@ -168,7 +168,7 @@ sealed class ManagerForm : Form
             await Run(install, "Updating mods — downloading, verifying and applying files…", async token => {
                 await Task.Run(() => new Installer(path, source, Log).Install(selected, token), token);
                 Save(); RefreshInstalled(); completedProfile = path; completedVersion = selected.Version;
-                SetStatus("You’re up to date — launch your Fabric profile and join staging.");
+                SetStatus("Managed mods updated. Unrelated mods preserved.");
             });
         };
         rollback.Click += async (_, _) => {
@@ -265,12 +265,12 @@ sealed class ManagerForm : Form
         browse.Enabled = check.Enabled = profile.Enabled = manifest.Enabled = changeFolder.Enabled = !busy;
         bool upToDate = completedProfile == profile.Text.Trim() && completedVersion == pack?.Version;
         install.Text = upToDate ? "Re&install…" : failedInstallation ? "&Try installation again" : "&Install update";
-        if (actionHeading is not null) actionHeading.Text = upToDate ? "3  You’re up to date" : "3  Update, then launch Minecraft";
+        if (actionHeading is not null) actionHeading.Text = busy ? "3  Updating your mods" : failedInstallation ? "3  Update unsuccessful" : upToDate ? "3  You’re up to date" : pack is null ? "3  Install when ready" : "3  Ready to install";
         install.AccessibleName = upToDate ? "Reinstall checked update" : failedInstallation ? "Retry checked installation" : "Install checked update";
         install.AccessibleDescription = install.Text.StartsWith("Re") ? "Install the checked version again to repair its managed files." : "Install the reviewed release into the selected game folder.";
         install.Enabled = !busy && pack is not null && Directory.Exists(profile.Text.Trim());
         rollback.Enabled = !busy && CanRestore(); cancel.Visible = busy; cancel.Enabled = busy;
-        nextStep.Text = busy ? "Please wait. Cancel safely if needed; recovery finishes before controls unlock." : completedProfile == profile.Text.Trim() && completedVersion == pack?.Version ? "Next: launch your Fabric profile. This update is installed." : pack is null ? "Next: check for updates. Nothing will be installed during this check." : !Directory.Exists(profile.Text.Trim()) ? "Next: choose an existing game folder to enable installation." : "Next: close Minecraft, then install. Downloads are verified and backups kept.";
+        nextStep.Text = busy ? "Please wait. Cancel safely if needed; recovery finishes before controls unlock." : completedProfile == profile.Text.Trim() && completedVersion == pack?.Version ? "Next: launch your Fabric profile and join staging." : pack is null ? "Next: check for updates. Nothing will be installed during this check." : !Directory.Exists(profile.Text.Trim()) ? "Next: choose an existing game folder to enable installation." : "Next: close Minecraft, then install. Backups are kept.";
         AcceptButton = install.Enabled && !upToDate ? install : check; StylePrimary();
     }
     async Task Run(Control initiator, string activity, Func<CancellationToken, Task> action) {
@@ -299,12 +299,17 @@ sealed class ManagerForm : Form
         string state = args.SkipWhile(a => a != "--ui-preview").Skip(1).FirstOrDefault() ?? "initial";
         if (state != "initial") {
             pack = new(1, "saturn", "0.1.3-preview", "26.3", "0.20.1", [new("saturn_atlas", "Zigdon7/MooreMinecraft", "staging-v0.1.3", "saturn-atlas-companion.jar", new string('a',64), 163840), new("fabric-api", "Zigdon7/MooreMinecraft", "staging-v0.1.3", "fabric-api.jar", new string('b',64), 4194304)]);
-            ShowRelease(); nextStep.Text = "Next: close Minecraft, then install. Downloads are verified and backups kept.";
-            status.Text = state switch { "busy" => "Updating mods — downloading and verifying files…", "success" => "You’re up to date — launch your Fabric profile and join staging.", "error" => "Could not download the update. Check your connection, then try again.", _ => "Release checked — review the versions above, then install." };
+            ShowRelease(); nextStep.Text = "Next: close Minecraft, then install. Backups are kept.";
+            status.Text = state switch { "busy" => "Updating mods — downloading and verifying files…", "success" => "Managed mods updated. Unrelated mods preserved.", "error" => "Could not download the update. Check your connection, then try again.", _ => "Release lists 2 pinned, checksummed files. Nothing installed yet." };
         }
-        if (state == "error") { failedInstallation = true; install.Text = "&Try installation again"; install.AccessibleName = "Retry checked installation"; }
+        if (state == "error") { if (actionHeading is not null) actionHeading.Text = "3  Update unsuccessful"; failedInstallation = true; install.Text = "&Try installation again"; install.AccessibleName = "Retry checked installation"; }
+        if (state == "busy" && actionHeading is not null) actionHeading.Text = "3  Updating your mods";
         if (state == "busy") nextStep.Text = "Please wait. Cancel safely if needed; recovery finishes before controls unlock.";
-        if (state == "success") { completedProfile = profile.Text; completedVersion = pack?.Version; if (actionHeading is not null) actionHeading.Text = "3  You’re up to date"; install.Text = "Re&install…"; install.AccessibleName = "Reinstall checked update"; installed.Text = "Installed: 0.1.3-preview. Your last managed update is recorded."; nextStep.Text = "Next: launch your Fabric profile. This update is installed."; }
+        if (state == "success") { completedProfile = profile.Text; completedVersion = pack?.Version; if (actionHeading is not null) actionHeading.Text = "3  You’re up to date"; install.Text = "Re&install…"; install.AccessibleName = "Reinstall checked update"; installed.Text = "Installed: 0.1.3-preview. Your last managed update is recorded."; nextStep.Text = "Next: launch your Fabric profile and join staging."; }
+        if (args.Contains("--long-values")) {
+            profile.Text = @"C:\Users\Player\Documents\Minecraft profiles\Saturn staging accessibility review\Instances\Long named Fabric profile for shared Atlas testing";
+            if (pack is not null) { pack = pack with { Version = "0.1.3-preview-accessibility-long-label" }; ShowRelease(); }
+        }
         if (state == "details") detailsToggle.Checked = true;
         busy = state == "busy"; progress.Visible = busy; cancel.Visible = busy; cancel.Enabled = busy;
         browse.Enabled = check.Enabled = profile.Enabled = manifest.Enabled = changeFolder.Enabled = !busy;
