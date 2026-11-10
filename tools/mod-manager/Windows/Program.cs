@@ -89,7 +89,11 @@ sealed class ManagerForm : Form
         Add(folderEditor, Copy("Use the game directory shown in your launcher’s Fabric profile."));
         Add(folderCard, selectedFolder); Add(folderCard, folderEditor);
         Add(folderCard, changeFolder);
-        changeFolder.CheckedChanged += (_, _) => { ShowFolderEditor(); if (changeFolder.Checked && IsHandleCreated) BeginInvoke(() => profile.Focus()); };
+        changeFolder.CheckedChanged += (_, _) => {
+            // UIA Toggle must return before child HWNDs emit structure-change events.
+            void ApplyExpansion() { ShowFolderEditor(); if (changeFolder.Checked) BeginInvoke(() => profile.Focus()); }
+            if (IsHandleCreated) BeginInvoke(ApplyExpansion); else ShowFolderEditor();
+        };
         Add(folderCard, installed);
         folderSection = folderCard;
         Add(page, overview);

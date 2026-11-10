@@ -19,6 +19,7 @@ New-Item -ItemType Directory -Force -Path $evidence | Out-Null
 $cases = @(
  @{name="initial"; args="--ui-preview initial"},
  @{name="checked"; args="--ui-preview checked"},
+ @{name="uia-expand"; args="--ui-preview checked"},
  @{name="busy"; args="--ui-preview busy"},
  @{name="success"; args="--ui-preview success"},
  @{name="error"; args="--ui-preview error"},
@@ -51,6 +52,12 @@ foreach ($case in $cases) {
   if ($case.name -eq "busy") {
    $cancelRow = $rows | Where-Object {$_.name -eq "Cancel current operation safely"} | Select-Object -First 1
    if (-not $cancelRow.enabled -or $cancelRow.offscreen) { throw "Busy cancellation is not visible/enabled" }
+  }
+  if ($case.name -eq "uia-expand") {
+   # Separate MTA automation client; a provider hang is a real failing gate.
+   $worker = Start-Process pwsh -ArgumentList @("-Mta", "-NoProfile", "-File", "scripts/windows-uia-expand.ps1", "-ProcessId", $p.Id) -PassThru -RedirectStandardOutput (Join-Path $evidence "uia-expand-worker.txt") -RedirectStandardError (Join-Path $evidence "uia-expand-worker-error.txt")
+   if (-not $worker.WaitForExit(20000)) { $worker.Kill(); throw "UIA expansion provider timed out" }
+   if ($worker.ExitCode -ne 0) { throw "UIA expansion worker failed: $($worker.ExitCode)" }
   }
   if ($case.name -eq "checked") {
    $toggle = $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, ([System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, "Change selected game folder")))
