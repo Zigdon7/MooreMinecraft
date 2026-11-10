@@ -186,7 +186,7 @@ sealed class ManagerForm : Form
             if (busy) { e.Cancel = true; cancellation?.Cancel(); SetStatus("Please wait — finishing or recovering the current operation before closing."); }
             else { source.Dispose(); hints.Dispose(); }
         };
-        RefreshInstalled(); UpdateActions();
+        ShowFolderEditor(); RefreshInstalled(); UpdateActions();
         // Offline visual/accessibility fixture only: never fetches or mutates a user's game directory.
         if (preview) { ConfigurePreview(args); TraceFocus(shell); }
         SetTabOrder(shell);
@@ -342,11 +342,13 @@ sealed class ManagerForm : Form
         }
     }
     void ShowFolderEditor() {
-        changeFolder.Visible = pack is not null;
-        folderEditor.Visible = pack is null || changeFolder.Checked || (!preview && !Directory.Exists(profile.Text.Trim()));
-        selectedFolder.Text = profile.Text.Trim(); selectedFolder.Visible = !folderEditor.Visible;
-        if (folderSection is not null) foreach (var control in new Control[] {selectedFolder, folderEditor, changeFolder}) {
-            var row = folderSection.RowStyles[folderSection.GetRow(control)]; row.SizeType = control.Visible ? SizeType.AutoSize : SizeType.Absolute; row.Height = 0;
+        bool showEditor = pack is null || changeFolder.Checked || (!preview && !Directory.Exists(profile.Text.Trim()));
+        bool canChange = pack is not null;
+        changeFolder.Visible = canChange; folderEditor.Visible = showEditor;
+        selectedFolder.Text = profile.Text.Trim(); selectedFolder.Visible = !showEditor;
+        // Visible includes ancestor visibility; use intended flags during construction.
+        if (folderSection is not null) foreach (var item in new[] {(Control: (Control)selectedFolder, Show: !showEditor), (Control: (Control)folderEditor, Show: showEditor), (Control: (Control)changeFolder, Show: canChange)}) {
+            var row = folderSection.RowStyles[folderSection.GetRow(item.Control)]; row.SizeType = item.Show ? SizeType.AutoSize : SizeType.Absolute; row.Height = 0;
         }
         ScheduleGeometry();
     }
