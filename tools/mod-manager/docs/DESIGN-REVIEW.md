@@ -107,3 +107,10 @@ checks; actual Windows Narrator, real 150/200% DPI/text enlargement and contrast
 themes; keyboard activation of install/restore confirmation and cancellation.
 Owner indicated they will test later. Resume the same review against that
 runtime evidence; do not announce the target reached before it is supported.
+
+Post-publication delivery checks passed: anonymous EXE download matched the
+51,692,565-byte CI executable and SHA-256; the anonymous manager engine fetched
+the public preview manifest, downloaded/verified/installed both pinned JARs into
+an isolated empty fixture profile, then successfully rolled back to empty. The
+release tag resolves to tested source 591848db156221ac4488714c6f14630bfa1a3c19.
+These are delivery/transaction checks, not user-PC or in-game rendering proof.
