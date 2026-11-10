@@ -4,6 +4,15 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
+if(args.Length==4 && args[0]=="--manifest" && args[2]=="--profile"){
+ using var remote=new GitHubSource();var manifest=await remote.Fetch(args[1],CancellationToken.None);
+ Directory.CreateDirectory(args[3]);var installer=new Installer(args[3],remote,Console.WriteLine);
+ await installer.Install(manifest);foreach(var mod in manifest.Mods){var file=Path.Combine(args[3],"mods",mod.Asset);if(Rules.Digest(file)!=mod.Sha256)throw new Exception("Post-install digest mismatch");}
+ Console.WriteLine("PASS anonymous public-release download + verified install: "+manifest.Version);
+ installer.Rollback();if(Directory.EnumerateFiles(Path.Combine(args[3],"mods"),"*.jar").Any())throw new Exception("Rollback did not restore empty fixture profile");
+ Console.WriteLine("PASS public-release install rollback");return;
+}
+
 int passed=0,failed=0;var results=new List<string>();
 async Task Test(string name,Func<Task> run){try{await run();passed++;results.Add("PASS "+name);Console.WriteLine("PASS "+name);}catch(Exception e){failed++;results.Add("FAIL "+name+": "+e);Console.WriteLine("FAIL "+name+": "+e.Message);}}
 void Assert(bool value,string message="Assertion failed"){if(!value)throw new Exception(message);}

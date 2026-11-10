@@ -2,6 +2,7 @@
 name = "saturn-atlas"
 version = "0.1.2-dev"
 edition = "2024"
+license = "MIT"
 [lib]
 crate-type = ["cdylib"]
 [dependencies]
