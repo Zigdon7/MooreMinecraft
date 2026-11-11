@@ -21,7 +21,7 @@
 - Importer acknowledged all 420 gatehouse placements, issued save-all, and removed its temporary force-load.
 - Clean server stop/restart, explicit re-add of loader, then **420/420 exact block predicates passed, zero mismatches**. Negative control failed as expected. Evidence: `evidence/verification-after-restart.json`.
 - Six parser/validation tests passed. Changed Rust file passes rustfmt check and git diff whitespace check. Full Rust suite/clippy and client-rendering/performance tests were not run.
-- Current restarted runtime log contains no ERROR/panic/overflow entries.
+- The inspected post-restart runtime log contained no ERROR/panic/overflow entries. The isolated server was then stopped cleanly.
 
 ## Known limits
 
