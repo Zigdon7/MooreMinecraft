@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /home/mc/.local/share/saturn-tools/zig ar "$@"

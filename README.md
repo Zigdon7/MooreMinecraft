@@ -4,6 +4,8 @@ Saturn / Pumpkin Minecraft mods, client tools and versioned release information.
 ## Projects
 - `mods/saturn-atlas`: Pumpkin WASM plugin + optional Fabric Java 26.3 companion. Shared Atlas, lodestone travel, M-key overlay and top-right minimap. **Staging alpha only.**
 - `tools/mod-manager`: portable Windows x64 updater. Pinned public GitHub release assets, SHA-256/size/mod-ID verification, targeted profile updates, backups, rollback and interrupted-update recovery.
+- `tools/structure-import`: isolated-tested schematic importer and original gatehouse fixture; 420/420 blocks verified after restart. Full-cube prototype only, not deployed to shared staging or production. [Results and limitations](tools/structure-import/QA.md).
+- `server-patches/pumpkin`: attributed GPL-3.0 force-load ticket backport for the pinned Pumpkin release; playerless loading/ticking tested, restart persistence still missing.
 - `releases/staging/pack.json`: versioned dependency manifest consumed by the updater (published with staging releases).
 
 Production has not been deployed. Staging uses port **25566**, an independent Survival Overworld and online authentication.

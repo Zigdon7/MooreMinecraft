@@ -1,0 +1,22 @@
+{
+  "players": "There are 0 of a max of 8 players online:",
+  "initial_unloaded": true,
+  "add": "Marked chunk [6, 6] in minecraft:overworld to be force loaded",
+  "loaded_after_add": true,
+  "duplicate_add": "Marked chunk [6, 6] in minecraft:overworld to be force loaded",
+  "placement": "Changed the block at 96, 199, 96",
+  "positive_predicate": "Test passed",
+  "negative_predicate": "Test failed",
+  "summon_tick_probe": "Summoned new Item",
+  "age_before": "Item has the following entity data: 6s",
+  "age_after": "Item has the following entity data: 73s",
+  "entity_ticks_no_players": true,
+  "remove_tick_probe": "Killed Item",
+  "retained_no_players": true,
+  "remove": "Unmarked chunk [6, 6] in minecraft:overworld for force loading",
+  "unloaded_after_single_remove": true,
+  "negative_add": "Marked chunk [-6, -6] in minecraft:overworld to be force loaded",
+  "negative_loaded": true,
+  "remove_all": "Unmarked all force loaded chunks in minecraft:overworld",
+  "negative_unloaded": true
+}

@@ -1,0 +1,7 @@
+{
+  "label": "after-restart",
+  "checked": 420,
+  "failed": [],
+  "negative_control": "Test failed",
+  "players": "There are 0 of a max of 8 players online:"
+}

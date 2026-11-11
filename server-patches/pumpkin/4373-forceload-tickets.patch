@@ -1,0 +1,83 @@
+From f1f0efe5285c2fa7fdffbf813df71ca673213062 Mon Sep 17 00:00:00 2001
+From: wsuites <whitesu@proton.me>
+Date: Mon, 26 Oct 2026 04:42:12 -0500
+Subject: [PATCH] fix(command): add chunk tickets for force-loaded chunks
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../src/command/commands/forceload.rs         | 40 ++++++++++++++++---
+ 1 file changed, 35 insertions(+), 5 deletions(-)
+
+diff --git a/crates/pumpkin-core/src/command/commands/forceload.rs b/crates/pumpkin-core/src/command/commands/forceload.rs
+index 4fdd48b9715..493994876c2 100644
+--- a/crates/pumpkin-core/src/command/commands/forceload.rs
++++ b/crates/pumpkin-core/src/command/commands/forceload.rs
+@@ -76,12 +76,23 @@ impl CommandExecutor for ForceloadAddExecutor {
+                 .forced_chunks
+                 .lock()
+                 .unwrap_or_else(std::sync::PoisonError::into_inner);
++            let mut chunk_loading = world
++                .level
++                .chunk_loading
++                .lock()
++                .unwrap_or_else(std::sync::PoisonError::into_inner);
+             for x in min_x..=max_x {
+                 for z in min_z..=max_z {
+-                    forced.insert(Vector2::new(x, z));
++                    let pos = Vector2::new(x, z);
++                    if forced.insert(pos) {
++                        chunk_loading.add_force_ticket(pos);
++                    }
+                 }
+             }
+-        }
++            chunk_loading.send_change();
++            drop(chunk_loading);
++            drop(forced);
++        };
+ 
+         world.update_active_chunks();
+ 
+@@ -159,12 +170,23 @@ impl CommandExecutor for ForceloadRemoveExecutor {
+                 .forced_chunks
+                 .lock()
+                 .unwrap_or_else(std::sync::PoisonError::into_inner);
++            let mut chunk_loading = world
++                .level
++                .chunk_loading
++                .lock()
++                .unwrap_or_else(std::sync::PoisonError::into_inner);
+             for x in min_x..=max_x {
+                 for z in min_z..=max_z {
+-                    forced.remove(&Vector2::new(x, z));
++                    let pos = Vector2::new(x, z);
++                    if forced.remove(&pos) {
++                        chunk_loading.remove_force_ticket(pos);
++                    }
+                 }
+             }
+-        }
++            chunk_loading.send_change();
++            drop(chunk_loading);
++            drop(forced);
++        };
+ 
+         world.update_active_chunks();
+ 
+@@ -213,7 +235,15 @@ impl CommandExecutor for ForceloadRemoveAllExecutor {
+                 .lock()
+                 .unwrap_or_else(std::sync::PoisonError::into_inner);
+             let count = forced.len();
+-            forced.clear();
++            let mut chunk_loading = world
++                .level
++                .chunk_loading
++                .lock()
++                .unwrap_or_else(std::sync::PoisonError::into_inner);
++            for pos in forced.drain() {
++                chunk_loading.remove_force_ticket(pos);
++            }
++            chunk_loading.send_change();
+             count
+         };
+ 

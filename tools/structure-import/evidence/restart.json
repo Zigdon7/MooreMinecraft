@@ -1,0 +1,7 @@
+{
+  "force_before_restart": "Marked chunk [6, 6] in minecraft:overworld to be force loaded",
+  "save": "Saving the game (this may take a moment!)\n$ Saved the game",
+  "stop": "Stopping the server\n02:36:48  INFO Stopped accepting incoming connections\n02:36:48  INFO Ending player tasks\n02:36:48  INFO All plugins unloaded successfully\n02:36:48  INFO Starting save.\n02:36:48  INFO Starting worlds\n02:36:48  INFO Saving level (world)...\n02:36:48  INFO Joining 1 threads for world...\n02:36:48  INFO Saving chunks before shutdown...\n02:36:48  INFO Saving 120 chunks (collected from 121 holders)...\n02:36:48  INFO schedule: waiting for 0 generation tasks to finish",
+  "forced_query_after_restart": "Chunk at [6, 6] in minecraft:overworld is not marked for force loading\nNo force loaded chunks were found in minecraft:overworld",
+  "loaded_after_restart": "Test failed"
+}

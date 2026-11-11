@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+/bin/
+/scratch/
+/runtime/
+/*.tar.gz
+/*.log
+/last-plan.json
+/loader-*.json
+/loader-*-console.txt
+/patched-runtime-console.txt
+/restart.json
+/verification-*.json

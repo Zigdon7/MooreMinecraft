@@ -56,7 +56,7 @@ jobs:
         run: |
           $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'
           New-Item -Path $key -Force | Out-Null
-          $old = Get-ItemPropertyValue -Path $key -Name AppsUseLightTheme -ErrorAction SilentlyContinue
+          $old = (Get-Item -Path $key).GetValue('AppsUseLightTheme', $null)
           try {
             Set-ItemProperty -Path $key -Name AppsUseLightTheme -Value 0 -Type DWord
             scripts/windows-smoke.ps1 -EvidenceName ui-evidence-dark
