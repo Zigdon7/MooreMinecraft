@@ -122,7 +122,7 @@ sealed class ManagerForm : Form
         installCard.Margin = new Padding(24, 0, 24, 12);
         shell.Controls.Add(installCard, 0, 1);
 
-        var setup = new LinkLabel { Text = "First time? Open the Fabric Loader installer website", AutoSize = true, AccessibleName = "Open official Fabric Loader installer website", Margin = new Padding(0, 8, 0, 8), LinkColor = SystemColors.HotTrack };
+        var setup = new LinkLabel { Text = "First time? Open the Fabric Loader installer website", AutoSize = true, AccessibleName = "Open official Fabric Loader installer website", Margin = new Padding(0, 8, 0, 8), LinkColor = SystemColors.WindowText };
         setup.LinkClicked += (_, _) => Process.Start(new ProcessStartInfo("https://fabricmc.net/use/installer/") { UseShellExecute = true });
         Add(page, setup);
         Add(page, detailsToggle);
@@ -367,9 +367,9 @@ sealed class ManagerForm : Form
         else if (root is TextBoxBase or ListView) { root.BackColor = SystemColors.Window; root.ForeColor = SystemColors.WindowText; }
         else if (root is TableLayoutPanel panel && Equals(panel.Tag, "system-card")) { root.BackColor = SystemColors.Window; root.ForeColor = SystemColors.WindowText; }
         if (root is LinkLabel link) {
-            link.LinkColor = SystemColors.HotTrack;
-            link.ActiveLinkColor = SystemColors.HotTrack;
-            link.VisitedLinkColor = SystemColors.HotTrack;
+            link.LinkColor = SystemColors.WindowText;
+            link.ActiveLinkColor = SystemColors.WindowText;
+            link.VisitedLinkColor = SystemColors.WindowText;
             link.DisabledLinkColor = SystemColors.GrayText;
         }
         foreach (Control child in root.Controls) ApplySystemPalette(child);
