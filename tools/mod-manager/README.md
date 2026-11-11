@@ -20,6 +20,11 @@ The EXE is unsigned and self-contained (no separate .NET installation required).
 
 ## UI review and accessibility evidence
 
+The manager follows the Windows light/dark app preference through .NET 10 system color mode,
+uses native button rendering (no fixed brand fill), and refreshes card/text/link colors
+when system colors change. High-contrast palettes take precedence. Native CI captures
+both the default runner preference and a dark Windows app preference.
+
 The redesign uses native Windows controls/system colors, explicit accessible labels,
 keyboard mnemonics and live status. Install/status stay visible while setup/details
 scroll. Folder editing and technical details are tested with keyboard navigation and

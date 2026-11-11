@@ -50,6 +50,20 @@ jobs:
         timeout-minutes: 4
         shell: pwsh
         run: scripts/windows-smoke.ps1
+      - name: Native Windows dark system preference smoke test
+        timeout-minutes: 4
+        shell: pwsh
+        run: |
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'
+          New-Item -Path $key -Force | Out-Null
+          $old = Get-ItemPropertyValue -Path $key -Name AppsUseLightTheme -ErrorAction SilentlyContinue
+          try {
+            Set-ItemProperty -Path $key -Name AppsUseLightTheme -Value 0 -Type DWord
+            scripts/windows-smoke.ps1 -EvidenceName ui-evidence-dark
+          } finally {
+            if ($null -eq $old) { Remove-ItemProperty -Path $key -Name AppsUseLightTheme -ErrorAction SilentlyContinue }
+            else { Set-ItemProperty -Path $key -Name AppsUseLightTheme -Value $old -Type DWord }
+          }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -58,4 +72,5 @@ jobs:
             artifacts/manager/Saturn-Mod-Manager.exe
             artifacts/manager/windows-smoke.*
             artifacts/manager/ui-evidence/
+            artifacts/manager/ui-evidence-dark/
             test-results.txt

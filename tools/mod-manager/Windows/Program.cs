@@ -4,6 +4,8 @@ using System.Text.Json;
 using System.Windows.Forms.Automation;
 
 ApplicationConfiguration.Initialize();
+// Let WinForms theme native controls/title bars using the Windows app preference.
+Application.SetColorMode(SystemColorMode.System);
 Application.Run(new ManagerForm(args));
 
 // Native controls preserve Windows focus, UI Automation and contrast-theme behavior.
@@ -60,7 +62,7 @@ sealed class ManagerForm : Form
         Font = new Font("Segoe UI", 10);
         install.Font = new Font(Font, FontStyle.Bold);
         install.EnabledChanged += (_, _) => StylePrimary();
-        SystemColorsChanged += (_, _) => StylePrimary();
+        SystemColorsChanged += (_, _) => ApplySystemPalette(this);
         AutoScaleMode = AutoScaleMode.Dpi;
         Size = new Size(920, 820);
         MinimumSize = new Size(640, 520);
@@ -189,6 +191,7 @@ sealed class ManagerForm : Form
         ShowFolderEditor(); RefreshInstalled(); UpdateActions();
         // Offline visual/accessibility fixture only: never fetches or mutates a user's game directory.
         if (preview) { ConfigurePreview(args); TraceFocus(shell); }
+        ApplySystemPalette(this);
         SetTabOrder(shell);
         Shown += (_, _) => { Height = Math.Min(Height, Screen.FromControl(this).WorkingArea.Height); Width = Math.Min(Width, Screen.FromControl(this).WorkingArea.Width); ApplyGeometry(); if (details.Visible) scroll.ScrollControlIntoView(details); else if (folderEditor.Visible) profile.Focus(); else check.Focus(); };
     }
@@ -202,7 +205,7 @@ sealed class ManagerForm : Form
     static TableLayoutPanel Card(string title) {
         var panel = Stack(); panel.Padding = new Padding(16, 12, 16, 12); panel.Margin = new Padding(0, 0, 0, 12);
 
-        panel.BackColor = SystemColors.Window; panel.ForeColor = SystemColors.WindowText;
+        panel.Tag = "system-card"; panel.BackColor = SystemColors.Window; panel.ForeColor = SystemColors.WindowText;
         Add(panel, Copy(title, 12, true)); return panel;
     }
     static FlowLayoutPanel Actions(params Control[] controls) {
@@ -357,16 +360,29 @@ sealed class ManagerForm : Form
         }
         ScheduleGeometry();
     }
+    void ApplySystemPalette(Control root) {
+        // Explicit card/text colors are snapshots: refresh them when Windows changes
+        // light/dark or accessibility colors, not just when the process starts.
+        if (root == this) { BackColor = SystemColors.Control; ForeColor = SystemColors.ControlText; }
+        else if (root is TextBoxBase or ListView) { root.BackColor = SystemColors.Window; root.ForeColor = SystemColors.WindowText; }
+        else if (root is TableLayoutPanel panel && Equals(panel.Tag, "system-card")) { root.BackColor = SystemColors.Window; root.ForeColor = SystemColors.WindowText; }
+        if (root is LinkLabel link) {
+            link.LinkColor = SystemColors.HotTrack;
+            link.ActiveLinkColor = SystemColors.HotTrack;
+            link.VisitedLinkColor = SystemColors.HotTrack;
+            link.DisabledLinkColor = SystemColors.GrayText;
+        }
+        foreach (Control child in root.Controls) ApplySystemPalette(child);
+        if (root == this) { StylePrimary(); Invalidate(true); }
+    }
     void StylePrimary() {
         var weight = install.Text.StartsWith("Re") ? FontStyle.Regular : FontStyle.Bold;
         if (install.Font.Size != Font.Size || install.Font.Style != weight) install.Font = new Font(Font, weight);
-        if (SystemInformation.HighContrast || install.Text.Replace("&", "").Contains("Reinstall")) { install.BackColor = SystemColors.Control; install.ForeColor = SystemColors.ControlText; install.FlatStyle = FlatStyle.System; install.UseVisualStyleBackColor = true; return; }
-        install.FlatStyle = FlatStyle.Flat; install.UseVisualStyleBackColor = false;
-        install.BackColor = install.Enabled ? Color.FromArgb(22, 71, 109) : SystemColors.Control;
-        install.ForeColor = install.Enabled ? Color.White : SystemColors.GrayText;
-        install.FlatAppearance.BorderColor = install.Enabled ? Color.FromArgb(22, 71, 109) : SystemColors.ControlDark;
-        install.FlatAppearance.MouseOverBackColor = Color.FromArgb(32, 88, 130);
-        install.FlatAppearance.MouseDownBackColor = Color.FromArgb(15, 54, 83);
+        // Native themed rendering supplies hover, pressed, disabled and contrast colors.
+        // Never override the user's palette with a fixed brand-blue fill.
+        install.FlatStyle = FlatStyle.Standard;
+        install.UseVisualStyleBackColor = true;
+        install.ResetBackColor(); install.ResetForeColor();
     }
     void ArrangeOverview() {
         if (folderSection is null || releaseSection is null) return;

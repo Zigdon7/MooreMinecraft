@@ -1,4 +1,4 @@
-param([string]$Exe = "artifacts/manager/Saturn-Mod-Manager.exe")
+param([string]$Exe = "artifacts/manager/Saturn-Mod-Manager.exe", [string]$EvidenceName = "ui-evidence")
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
@@ -25,7 +25,7 @@ function Focus-WithTabs([string]$Name) {
  throw "Keyboard cannot focus: $Name"
 }
 $resolved = (Resolve-Path $Exe).Path
-$evidence = Join-Path (Resolve-Path artifacts/manager) "ui-evidence"
+$evidence = Join-Path (Resolve-Path artifacts/manager)  $EvidenceName
 New-Item -ItemType Directory -Force -Path $evidence | Out-Null
 $cases = @(
  @{name="initial"; args="--ui-preview initial"},
