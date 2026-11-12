@@ -34,6 +34,14 @@ public final class SaturnAtlasClient implements ClientModInitializer {
     static String describePlayer(){var c=Minecraft.getInstance();return c.player==null?"Not connected":model.describe(c.player.getX(),c.player.getZ(),c.player.getYRot());}
     static final AtlasHud hud=new AtlasHud();
     static KeyMapping createOpenKey(){return new KeyMapping("key.saturn_atlas.open",InputConstants.KEY_M,KeyMapping.Category.MISC);}
+    /** Unbound by default. Minecraft 26.3 uses 0 for "no key"; -1 is read as a real key and crashes on mouse grab. */
+    static KeyMapping createUnboundKey(String name){return new KeyMapping(name,InputConstants.UNKNOWN.getValue(),KeyMapping.Category.MISC);}
+    /** Unbinds a mapping whose saved key is not a valid keyboard key (written by 0.1.3-dev builds). */
+    static boolean repairKey(KeyMapping mapping){
+        var bound=InputConstants.getKey(mapping.saveString());
+        if(bound.getType()!=InputConstants.Type.KEYBOARD||bound.getValue()>=0)return false;
+        mapping.setKey(InputConstants.UNKNOWN);return true;
+    }
     static void openMap(){Minecraft.getInstance().gui.setScreen(new AtlasScreen());request("atlas sync");}
     static void request(String command){model.request(System.nanoTime());var client=Minecraft.getInstance();if(client.getConnection()!=null)client.getConnection().sendCommand(command);else model.receive("{\"v\":1,\"error\":\"Not connected to a server\"}",System.nanoTime());}
     public record AtlasPayload(String json) implements CustomPacketPayload {
@@ -48,8 +56,12 @@ public final class SaturnAtlasClient implements ClientModInitializer {
         preferencesFile=net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve("saturn-atlas.properties");
         preferences=AtlasPreferences.load(preferencesFile);
         openKey=KeyMappingHelper.registerKeyMapping(createOpenKey());
-        describeKey=KeyMappingHelper.registerKeyMapping(new KeyMapping("key.saturn_atlas.describe",-1,KeyMapping.Category.MISC));
-        toggleHudKey=KeyMappingHelper.registerKeyMapping(new KeyMapping("key.saturn_atlas.toggle_hud",-1,KeyMapping.Category.MISC));
+        describeKey=KeyMappingHelper.registerKeyMapping(createUnboundKey("key.saturn_atlas.describe"));
+        toggleHudKey=KeyMappingHelper.registerKeyMapping(createUnboundKey("key.saturn_atlas.toggle_hud"));
+        net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents.CLIENT_STARTED.register(client->{
+            boolean repaired=false;for(var key:new KeyMapping[]{openKey,describeKey,toggleHudKey})repaired|=repairKey(key);
+            if(repaired){KeyMapping.resetMapping();client.options.save();}
+        });
         ClientTickEvents.END_CLIENT_TICK.register(client->{
             while(openKey.consumeClick())if(client.player!=null&&client.gui.screen()==null)openMap();
             while(toggleHudKey.consumeClick()){preferences.visible=!preferences.visible;savePreferences();}
