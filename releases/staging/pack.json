@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "packId": "saturn",
-  "version": "client-hotfix-523fe7c",
+  "version": "staging-zoom-06b77d4",
   "minecraft": "26.3",
   "fabricLoader": "0.20.1",
   "mods": [
@@ -16,10 +16,10 @@
     {
       "id": "saturn_atlas",
       "repo": "Zigdon7/MooreMinecraft",
-      "tag": "client-hotfix-523fe7c",
+      "tag": "staging-zoom-06b77d4",
       "asset": "saturn-atlas-companion-0.1.3-dev.jar",
-      "sha256": "e931219f1214ec1a8dab47dfca98b190519fede8b1a8624c439ba2b5f23a9da0",
-      "size": 49158
+      "sha256": "5ee9b9ed0f5c81ad1ee74839c31304d63028d3fd37245c7e759f63edc6ef4693",
+      "size": 51095
     }
   ]
 }
