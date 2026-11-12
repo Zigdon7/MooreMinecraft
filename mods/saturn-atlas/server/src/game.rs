@@ -18,10 +18,13 @@ use pumpkin_plugin_api::{
     text::TextComponent,
     uuid,
 };
-use saturn_atlas_core::{Anchor, Marker, Position, Quote, TravelRules};
+use saturn_atlas_core::{
+    Anchor, Marker, Position, Quote, TravelRules,
+    explore::{self, ChunkKey, ExploreQueue},
+};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet},
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -44,8 +47,7 @@ pub struct Payment {
 pub struct Runtime {
     pub store: Store,
     pub quotes: BTreeMap<String, Quote>,
-    pub queue: VecDeque<(String, i32, i32)>,
-    pub queued: BTreeSet<(String, i32, i32)>,
+    pub queue: ExploreQueue,
     pub views: BTreeMap<String, u32>,
     pub serial: u64,
     pub dirty: bool,
@@ -354,7 +356,7 @@ impl CommandHandler for Help {
         _: Server,
         _: ConsumedArgs,
     ) -> Result<i32, CommandError> {
-        sender.send_message(TextComponent::text("Staging: /atlas view | center | zoom 1..4 | marker add <name> | marker remove <id> | markers; /lodestone create <name> | list | quote <id> | confirm | access <id> public/private. Travel currency: amethyst shards. Not production-ready."));
+        sender.send_message(TextComponent::text(&format!("Staging: /atlas view | center | zoom 1..4 | marker add <name> | marker remove <id> | markers; /lodestone create <name> | list | quote <id> | confirm | access <id> public/private. {} Not production-ready.", if TravelRules::default().free { "Travel is currently free." } else { "Travel currency: amethyst shards." })));
         Ok(1)
     }
 }
@@ -533,8 +535,13 @@ fn stone_command(shared: &Shared, p: &Player, args: &str) -> Result<String, Stri
                 expires_ms: now() + rules.quote_lifetime_ms,
             };
             r.quotes.insert(id, q);
+            let cost = if price == 0 {
+                "free".to_string()
+            } else {
+                format!("{price} amethyst shard(s)")
+            };
             Ok(format!(
-                "Price: {price} amethyst shard(s). /lodestone confirm within 15 seconds. Stay at the origin."
+                "Price: {cost}. /lodestone confirm within 15 seconds. Stay at the origin."
             ))
         }
         "confirm" => {
@@ -567,16 +574,20 @@ fn stone_command(shared: &Shared, p: &Player, args: &str) -> Result<String, Stri
                 .get(&q.destination)
                 .ok_or("Destination removed")?;
             let landing = safe_landing(p, dest)?;
-            r.store.state.pending.insert(
-                id.clone(),
-                Payment {
-                    player: id.clone(),
-                    destination: q.destination.clone(),
-                    price: q.price,
-                    stage: "debit-intent".into(),
-                },
-            );
-            r.store.save()?;
+            // A free journey takes nothing, so there is no payment to journal or reconcile.
+            let paid = q.price > 0;
+            if paid {
+                r.store.state.pending.insert(
+                    id.clone(),
+                    Payment {
+                        player: id.clone(),
+                        destination: q.destination.clone(),
+                        price: q.price,
+                        stage: "debit-intent".into(),
+                    },
+                );
+                r.store.save()?;
+            }
             let inv = p.get_inventory().as_inventory();
             let mut remaining = q.price;
             for slot in 0..36 {
@@ -600,8 +611,10 @@ fn stone_command(shared: &Shared, p: &Player, args: &str) -> Result<String, Stri
             if remaining != 0 {
                 return Err("Payment interrupted. Travel locked for admin reconciliation; no further charge attempted.".into());
             }
-            r.store.state.pending.get_mut(&id).unwrap().stage = "debited".into();
-            r.store.save()?;
+            if paid {
+                r.store.state.pending.get_mut(&id).unwrap().stage = "debited".into();
+                r.store.save()?;
+            }
             drop(r);
             p.teleport(landing, None, None, p.get_world());
             // The host teleport call is synchronous, but a real client ACK is not exposed here.
@@ -616,13 +629,17 @@ fn stone_command(shared: &Shared, p: &Player, args: &str) -> Result<String, Stri
                 })
                 .is_none_or(|d| d > 1.0)
             {
-                return Err(
+                return Err(if paid {
                     "Arrival not confirmed; payment journal retained for admin reconciliation"
-                        .into(),
-                );
+                } else {
+                    "Arrival not confirmed; nothing was charged. Request a new quote."
+                }
+                .into());
             }
-            r.store.state.pending.remove(&id);
-            r.store.save()?;
+            if paid {
+                r.store.state.pending.remove(&id);
+                r.store.save()?;
+            }
             tracing::info!("SATURN_TRAVEL_COMMITTED player={} fee={}", id, q.price);
             Ok("Travel complete".into())
         }
@@ -639,10 +656,8 @@ impl EventHandler<ChunkSendEvent> for Chunks {
     fn handle(&self, _: Server, e: ChunkSendEventData) -> ChunkSendEventData {
         if !e.cancelled {
             if let Ok(mut r) = self.shared.lock() {
-                let key = (e.target_world.get_id(), e.chunk_x, e.chunk_z);
-                if r.queue.len() < 256 && r.queued.insert(key.clone()) {
-                    r.queue.push_back(key)
-                }
+                r.queue
+                    .push((e.target_world.get_id(), e.chunk_x, e.chunk_z));
             }
         }
         e
@@ -715,59 +730,102 @@ pub fn setup(context: &Context, shared: Shared) -> Result<(), String> {
         true,
     )?;
     let processing = shared.clone();
-    context.schedule_repeating_task(20, 20, move |server| {
+    let runs = std::sync::atomic::AtomicU32::new(0);
+    context.schedule_repeating_task(20, 5, move |server| {
         let shared = &processing;
-        let next = {
-            let Ok(mut r) = shared.lock() else { return };
-            let v = r.queue.pop_front();
-            if let Some(k) = &v {
-                r.queued.remove(k);
-            }
-            v
+        let worlds = server.get_all_worlds();
+        let players = server.get_all_players();
+        let at: Vec<ChunkKey> = players
+            .iter()
+            .map(|p| {
+                let (x, _, z) = p.get_position();
+                (
+                    p.get_world().get_id(),
+                    (x.floor() as i32).div_euclid(16),
+                    (z.floor() as i32).div_euclid(16),
+                )
+            })
+            .collect();
+        // Terrain around players first, so the visible map follows them; then the backlog of
+        // sent chunks. Host calls happen without the lock held.
+        let near = {
+            let Ok(r) = shared.lock() else { return };
+            explore::missing_near(&at, explore::VIEW_RADIUS, |(w, x, z)| {
+                r.store.state.tiles.contains_key(&format!("{w}:{x}:{z}"))
+            })
         };
-        if let Some((world, x, z)) = next {
-            if let Some(w) = server
-                .get_all_worlds()
-                .into_iter()
-                .find(|w| w.get_id() == world)
-            {
-                if let Some(chunk) = w.get_chunk(x, z) {
-                    let mut pixels = vec![];
-                    for dz in 0..4 {
-                        for dx in 0..4 {
-                            let bx = dx * 4 + 2;
-                            let bz = dz * 4 + 2;
-                            let y = chunk.get_top_block_y(bx, bz);
-                            let mut state = chunk.get_block_state(BlockPos { x: bx, y, z: bz });
-                            if state.is_air && y > -64 {
-                                state = chunk.get_block_state(BlockPos {
-                                    x: bx,
-                                    y: y - 1,
-                                    z: bz,
-                                });
-                            }
-                            pixels.push(color(&state.block_name));
-                        }
+        let sample = |key: &ChunkKey| -> Option<Tile> {
+            let (world, x, z) = key;
+            let chunk = worlds
+                .iter()
+                .find(|w| w.get_id() == *world)?
+                .get_chunk(*x, *z)?;
+            let mut pixels = vec![];
+            for dz in 0..4 {
+                for dx in 0..4 {
+                    let bx = dx * 4 + 2;
+                    let bz = dz * 4 + 2;
+                    let y = chunk.get_top_block_y(bx, bz);
+                    let mut state = chunk.get_block_state(BlockPos { x: bx, y, z: bz });
+                    if state.is_air && y > -64 {
+                        state = chunk.get_block_state(BlockPos {
+                            x: bx,
+                            y: y - 1,
+                            z: bz,
+                        });
                     }
-                    if let Ok(mut r) = shared.lock() {
-                        if r.store.state.tiles.len() < MAX_CHUNKS {
-                            r.store.state.atlas.record_delivered_chunk(&world, x, z);
-                            r.store.state.tiles.insert(
-                                format!("{world}:{x}:{z}"),
-                                Tile {
-                                    world,
-                                    x,
-                                    z,
-                                    pixels,
-                                },
-                            );
-                            r.dirty = true;
-                        }
-                    }
+                    pixels.push(color(&state.block_name));
+                }
+            }
+            Some(Tile {
+                world: world.clone(),
+                x: *x,
+                z: *z,
+                pixels,
+            })
+        };
+        let mut tiles = vec![];
+        for key in &near {
+            if tiles.len() >= explore::BUDGET {
+                break;
+            }
+            // Not loaded yet: costs no budget and is retried on the next run.
+            if let Some(tile) = sample(key) {
+                tiles.push(tile);
+            }
+        }
+        while tiles.len() < explore::BUDGET {
+            let next = {
+                let Ok(mut r) = shared.lock() else { return };
+                r.queue.pop()
+            };
+            let Some(key) = next else { break };
+            if let Some(tile) = sample(&key) {
+                tiles.push(tile);
+            }
+        }
+        if !tiles.is_empty() {
+            let Ok(mut r) = shared.lock() else { return };
+            for tile in tiles {
+                let name = format!("{}:{}:{}", tile.world, tile.x, tile.z);
+                // At capacity, known chunks still refresh; only new ones are refused.
+                if r.store.state.tiles.len() < MAX_CHUNKS
+                    || r.store.state.tiles.contains_key(&name)
+                {
+                    r.queue.forget(&(tile.world.clone(), tile.x, tile.z));
+                    r.store
+                        .state
+                        .atlas
+                        .record_delivered_chunk(&tile.world, tile.x, tile.z);
+                    r.store.state.tiles.insert(name, tile);
+                    r.dirty = true;
                 }
             }
         }
-        for p in server.get_all_players() {
+        if runs.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 4 != 3 {
+            return;
+        }
+        for p in players {
             let has = p
                 .get_inventory()
                 .as_inventory()

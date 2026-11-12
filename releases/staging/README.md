@@ -12,12 +12,12 @@ The default manifest is already configured. It installs the matching Atlas compa
 
 ## Controls
 - **M**: open the larger shared Atlas overlay. **M** or **Esc** closes it. Rebind "Open Saturn Atlas" under Controls → Miscellaneous if needed.
-- A north-up **minimap appears at top right**, using the same shared exploration, markers and accessible lodestones. Refresh is bounded to once per five seconds; F1 hides it with the rest of the HUD.
+- A north-up **minimap appears at top right**, using the same shared exploration, markers and accessible lodestones. Refresh is bounded to once per five seconds, and the server maps the 9 x 9 chunks around each player first, so walked terrain appears on the next refresh; F1 hides it with the rest of the HUD.
 - Unknown terrain remains blank. This alpha samples coarse surface terrain, not caves or a full vanilla-quality world renderer.
 - `/saturnmap` still opens the same overlay. Vanilla Java clients can use `/atlas view` without the companion.
 
 ## Travel
-`/lodestone create <name>` registers a placed vanilla lodestone you are looking at. Owners can use `/lodestone access <id> public` to share it. Select an accessible destination, request a quote, then confirm before it expires while near an origin lodestone. Travel costs ordinary amethyst shards in this alpha.
+`/lodestone create <name>` registers a placed vanilla lodestone you are looking at. Owners can use `/lodestone access <id> public` to share it. Select an accessible destination, request a quote, then confirm before it expires while near an origin lodestone. **Travel is temporarily free** while lodestone spawning is being fixed; the quote and confirm steps are unchanged. Distance pricing in amethyst shards returns by setting `FREE_TRAVEL` to `false` in `mods/saturn-atlas/core/src/lib.rs`. Free quotes need the companion built from this change or later; an older companion shows "Invalid map reply" while a free quote is active, and `/lodestone confirm` in chat still works.
 
 ## Update/rollback boundaries
 The updater installs only JARs into the selected profile. It does not modify Minecraft accounts, the launcher, saves/worlds or the production server. It verifies pinned release tag, size, SHA-256 and Fabric mod ID. **Roll back last update** restores the prior managed JAR set; interrupted updates are recovered before another install/rollback.

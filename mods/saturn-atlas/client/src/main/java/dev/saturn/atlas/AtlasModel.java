@@ -47,7 +47,7 @@ public final class AtlasModel {
         if(snapshot.quote()==null||!snapshot.quote().destination().equals(selected))return "Get a travel quote";
         if(now>=snapshot.quote().expiresNanos())return "Quote expired: get quote";
         if(snapshot.balance()<snapshot.quote().price())return "Need "+snapshot.quote().price()+" shards";
-        return "Travel: "+snapshot.quote().price()+" shards";
+        return snapshot.quote().price()==0?"Travel: free":"Travel: "+snapshot.quote().price()+" shards";
     }
     public boolean canConfirm(long now){return canQuote()&&snapshot.quote()!=null&&snapshot.quote().destination().equals(selected)&&now<snapshot.quote().expiresNanos()&&snapshot.balance()>=snapshot.quote().price();}
     public void receive(String json,long now){
@@ -75,7 +75,7 @@ public final class AtlasModel {
         }
         var anchors=points(root,"anchors");var markers=points(root,"markers");Quote quote=null;
         if(root.has("quote")&&!root.get("quote").isJsonNull()){
-            var q=root.getAsJsonObject("quote");String id=uuid(q,"destination");int price=integer(q,"price",1,64),remaining=integer(q,"remaining_ms",0,15000);
+            var q=root.getAsJsonObject("quote");String id=uuid(q,"destination");int price=integer(q,"price",0,64),remaining=integer(q,"remaining_ms",0,15000);
             if(anchors.stream().noneMatch(a->a.id().equals(id)))throw new IllegalArgumentException("Unknown quoted destination");
             quote=new Quote(id,price,now+remaining*1_000_000L);
         }

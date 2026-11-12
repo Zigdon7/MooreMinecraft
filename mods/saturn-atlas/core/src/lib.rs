@@ -83,14 +83,29 @@ pub struct Quote {
 }
 #[derive(Debug)]
 pub struct TravelRules {
+    /// Every journey costs nothing; the quote, proximity and access checks still apply.
+    pub free: bool,
     pub blocks_per_rune: f64,
     pub max_fee: u32,
     pub origin_radius: f64,
     pub quote_lifetime_ms: u64,
 }
+/// Temporary: travel is free until lodestone spawning is fixed. Set to `false` to restore
+/// distance pricing in amethyst shards; nothing else needs to change.
+pub const FREE_TRAVEL: bool = true;
 impl Default for TravelRules {
     fn default() -> Self {
         Self {
+            free: FREE_TRAVEL,
+            ..Self::paid()
+        }
+    }
+}
+impl TravelRules {
+    /// Distance pricing in amethyst shards.
+    pub fn paid() -> Self {
+        Self {
+            free: false,
             blocks_per_rune: 1000.0,
             max_fee: 64,
             origin_radius: 4.0,
@@ -104,6 +119,9 @@ impl TravelRules {
             return Err("invalid pricing config");
         }
         let d = from.distance(to).ok_or("invalid position or dimension")?;
+        if self.free {
+            return Ok(0);
+        }
         let fee = (d / self.blocks_per_rune).ceil().max(1.0);
         if fee > self.max_fee as f64 {
             return Err("journey exceeds maximum fee");
@@ -196,7 +214,7 @@ mod tests {
     }
     #[test]
     fn distance_price_and_dimension() {
-        let r = TravelRules::default();
+        let r = TravelRules::paid();
         assert_eq!(r.price(&pos(0.0), &pos(1500.0)), Ok(2));
         let mut b = pos(0.0);
         b.world = "nether".into();
@@ -204,9 +222,29 @@ mod tests {
         assert!(r.price(&pos(f64::NAN), &pos(0.0)).is_err());
     }
     #[test]
+    fn free_travel_keeps_every_check_except_payment() {
+        let (a, mut q) = setup();
+        let r = TravelRules {
+            free: true,
+            ..TravelRules::paid()
+        };
+        assert_eq!(r.price(&pos(0.0), &pos(1500.0)), Ok(0));
+        assert_eq!(r.price(&pos(0.0), &pos(1e7)), Ok(0), "no fee cap when free");
+        let mut b = pos(0.0);
+        b.world = "nether".into();
+        assert!(r.price(&pos(0.0), &b).is_err());
+        assert!(r.validate_quote(&q, "p", &pos(0.0), &a, 50, 64).is_err(), "paid quote is stale");
+        q.price = 0;
+        assert_eq!(r.validate_quote(&q, "p", &pos(0.0), &a, 50, 0), Ok(()));
+        assert!(r.validate_quote(&q, "p", &pos(20.0), &a, 50, 0).is_err());
+        assert!(r.validate_quote(&q, "p", &pos(0.0), &a, 100, 0).is_err());
+        assert!(r.validate_quote(&q, "other", &pos(0.0), &a, 50, 0).is_err());
+        assert!(TravelRules::paid().validate_quote(&q, "p", &pos(0.0), &a, 50, 9).is_err());
+    }
+    #[test]
     fn remote_or_expired_quote_rejected() {
         let (a, q) = setup();
-        let r = TravelRules::default();
+        let r = TravelRules::paid();
         assert_eq!(r.validate_quote(&q, "p", &pos(0.0), &a, 50, 2), Ok(()));
         assert!(r.validate_quote(&q, "p", &pos(20.0), &a, 50, 2).is_err());
         assert!(r.validate_quote(&q, "p", &pos(0.0), &a, 100, 2).is_err());
@@ -214,7 +252,7 @@ mod tests {
     #[test]
     fn access_payment_identity_rechecked() {
         let (mut a, q) = setup();
-        let r = TravelRules::default();
+        let r = TravelRules::paid();
         assert!(r.validate_quote(&q, "other", &pos(0.0), &a, 50, 2).is_err());
         assert!(r.validate_quote(&q, "p", &pos(0.0), &a, 50, 1).is_err());
         a.anchors.get_mut("b").unwrap().public = false;
@@ -224,7 +262,7 @@ mod tests {
     #[test]
     fn changed_price_or_anchor_rejected() {
         let (mut a, q) = setup();
-        let r = TravelRules::default();
+        let r = TravelRules::paid();
         a.anchors.get_mut("b").unwrap().position.x = 3000.0;
         assert!(r.validate_quote(&q, "p", &pos(0.0), &a, 50, 20).is_err());
         a.anchors.remove("b");
@@ -251,4 +289,5 @@ mod tests {
     }
 }
 
+pub mod explore;
 pub mod protocol;
