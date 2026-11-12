@@ -3,10 +3,22 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Windows.Forms.Automation;
 
-ApplicationConfiguration.Initialize();
-// Let WinForms theme native controls/title bars using the Windows app preference.
-Application.SetColorMode(SystemColorMode.System);
-Application.Run(new ManagerForm(args));
+static class Program
+{
+    // The shell folder picker and other COM dialogs require a single-threaded apartment.
+    // Top-level statements start the UI thread in the MTA, where the picker hangs the app.
+    [STAThread]
+    static int Main(string[] args)
+    {
+        // Exit code only, no window: lets the smoke test prove the UI thread apartment.
+        if (args.Contains("--check-apartment")) return Thread.CurrentThread.GetApartmentState() == ApartmentState.STA ? 0 : 1;
+        ApplicationConfiguration.Initialize();
+        // Let WinForms theme native controls/title bars using the Windows app preference.
+        Application.SetColorMode(SystemColorMode.System);
+        Application.Run(new ManagerForm(args));
+        return 0;
+    }
+}
 
 // Native controls preserve Windows focus, UI Automation and contrast-theme behavior.
 sealed class ManagerForm : Form
@@ -21,10 +33,11 @@ sealed class ManagerForm : Form
     readonly CheckBox detailsToggle = new() { Text = "Show &technical details", AutoSize = true, AccessibleName = "Show technical details" };
     readonly ListView mods = new() { Dock = DockStyle.Top, View = View.Details, FullRowSelect = true, Height = 144, BorderStyle = BorderStyle.FixedSingle, AccessibleName = "Verified release files", AccessibleDescription = "Mod ID, release, filename and download size." };
     readonly TextBox output = new() { Dock = DockStyle.Top, Height = 130, ReadOnly = true, Multiline = true, ScrollBars = ScrollBars.Vertical, AccessibleName = "Operation details log" };
-    readonly Label release = Copy("Not checked yet", 13, true);
+    readonly Label release = Copy("Not checked yet", 15, true);
     readonly Label requirements = Copy("Check for updates to see what the latest release contains.");
     readonly Label contents = Copy("");
-    readonly Label installed = Copy("Select your Fabric profile’s game folder.");
+    readonly Label installed = Copy("Not installed", 15, true);
+    readonly Label installedNote = Copy("");
     readonly Label status = Copy("No changes have been made.");
     readonly Label nextStep = Copy("Next: check for updates. Nothing will be installed during this check.");
     readonly ProgressBar progress = new() { Dock = DockStyle.Top, Height = Px(4), Margin = new Padding(0, Px(6), 0, Px(2)), Visible = false, Style = ProgressBarStyle.Marquee, AccessibleName = "Operation in progress" };
@@ -42,6 +55,8 @@ sealed class ManagerForm : Form
     readonly GitHubSource source = new();
     readonly bool preview;
     PackManifest? pack;
+    Installed? record;
+    List<(ModSpec Mod, string State)> states = [];
     CancellationTokenSource? cancellation;
     bool busy;
     bool failedInstallation;
@@ -92,26 +107,28 @@ sealed class ManagerForm : Form
             void ApplyExpansion() { ShowFolderEditor(); if (changeFolder.Checked) BeginInvoke(() => profile.Focus()); }
             if (IsHandleCreated) BeginInvoke(ApplyExpansion); else ShowFolderEditor();
         };
-        Add(folder, installed);
         folderSection = folder;
         Add(page, folder);
         Add(page, Rule());
 
-        var latest = Stack();
-        Add(latest, SectionLabel("Latest release"));
-        Add(latest, Row(release, check));
-        Add(latest, requirements);
-        Add(latest, contents);
-        Add(page, latest);
+        // Middle of the page: what this folder has now.
+        var current = Stack();
+        Add(current, SectionLabel("Installed now"));
+        Add(current, installed);
+        Add(current, installedNote);
+        Add(page, current);
         Add(page, Rule());
 
         // Install, recovery and status stay visible in a footer while the page above scrolls.
         var installCard = Stack(); installCard.Tag = "bar"; installCard.Margin = Padding.Empty;
         var footerRule = Rule(); footerRule.Margin = Padding.Empty; Add(installCard, footerRule);
         var footer = Stack(); footer.Padding = new Padding(Px(28), Px(14), Px(28), Px(16)); Add(installCard, footer);
-        actionHeading = Copy("Install when ready", 12, true); Add(footer, actionHeading);
+        // Bottom: the new version sits on the same line as the button that installs it.
+        actionHeading = SectionLabel("Latest release"); actionHeading.Margin = new Padding(0, 0, 0, Px(4)); Add(footer, actionHeading);
+        Add(footer, Row(release, install));
+        Add(footer, contents);
         Add(footer, nextStep);
-        var actions = Actions(install, cancel, rollback); actions.Margin = new Padding(Px(2), Px(6), 0, Px(4)); Add(footer, actions);
+        var actions = Actions(check, cancel, rollback); actions.Margin = new Padding(Px(2), Px(6), 0, Px(4)); Add(footer, actions);
         Add(footer, progress);
         status.AccessibleName = "Update status";
         status.AccessibleRole = AccessibleRole.StaticText;
@@ -120,6 +137,7 @@ sealed class ManagerForm : Form
 
         detailsToggle.Margin = new Padding(Px(3), Px(8), 0, Px(6)); contents.Visible = false;
         Add(page, detailsToggle);
+        requirements.Visible = false; Add(page, requirements);
         var setup = new LinkLabel { Text = "New to Fabric? Open the Fabric Loader installer website", AutoSize = true, AccessibleName = "Open official Fabric Loader installer website", Margin = new Padding(0, 0, 0, Px(8)), LinkColor = SystemColors.WindowText };
         setup.LinkClicked += (_, _) => Process.Start(new ProcessStartInfo("https://fabricmc.net/use/installer/") { UseShellExecute = true });
         Add(page, setup);
@@ -140,7 +158,7 @@ sealed class ManagerForm : Form
         manifest.Text = DefaultManifest;
         if (!preview) RestoreSettings();
         profile.TextChanged += (_, _) => { if (!updatingPreview) { completedProfile = completedVersion = null; RefreshInstalled(); UpdateActions(); SetStatus("Game folder changed — review the selected folder before installing.", announce: false); } };
-        profile.Validated += (_, _) => { if (!preview && !busy) SetStatus(installed.Text); };
+        profile.Validated += (_, _) => { if (!preview && !busy) SetStatus($"Installed now: {installed.Text}. {installedNote.Text}".Trim()); };
         manifest.TextChanged += (_, _) => { if (!updatingPreview) { completedProfile = completedVersion = null; pack = null; ShowRelease(); UpdateActions(); SetStatus("Source changed — check for updates again.", announce: false); } };
         manifest.Validated += (_, _) => { if (!preview && !busy && pack is null) SetStatus("Source changed — check for updates again."); };
         browse.Click += (_, _) => {
@@ -152,21 +170,14 @@ sealed class ManagerForm : Form
             void ApplyDetails() { details.Visible = detailsToggle.Checked; ScheduleGeometry(); if (details.Visible && IsHandleCreated) BeginInvoke(() => scroll.ScrollControlIntoView(details)); }
             if (IsHandleCreated) BeginInvoke(ApplyDetails); else ApplyDetails();
         };
-        check.Click += async (_, _) => await Run(check, "Checking the staging release…", async token => {
-            // Invalidate a previous check before attempting a new one; failed checks never leave a stale install action.
-            pack = null; ShowRelease();
-            var fetched = await source.Fetch(manifest.Text.Trim(), token);
-            pack = fetched; ShowRelease(); Save();
-            Log($"Checked {pack.Version}: {pack.Mods.Count} pinned, checksummed files.");
-            SetStatus($"Release lists {pack.Mods.Count} pinned, checksummed files. Nothing installed yet.");
-        });
+        check.Click += async (_, _) => await CheckNow(quiet: false);
         install.Click += async (_, _) => {
             if (preview || pack is null || !Directory.Exists(profile.Text.Trim())) return;
             var selected = pack; string path = profile.Text.Trim();
             if (MessageBox.Show(this, $"Install Saturn {selected.Version} into:\n{path}\n\nClose Minecraft first. Only managed mods will change; backups will be kept.", "Install staging update?", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
             await Run(install, "Updating mods — downloading, verifying and applying files…", async token => {
                 await Task.Run(() => new Installer(path, source, Log).Install(selected, token), token);
-                Save(); RefreshInstalled(); completedProfile = path; completedVersion = selected.Version;
+                Save(); completedProfile = path; completedVersion = selected.Version; RefreshInstalled();
                 SetStatus("Managed mods updated. Unrelated mods preserved.");
             });
         };
@@ -190,7 +201,9 @@ sealed class ManagerForm : Form
         if (preview) { ConfigurePreview(args); TraceFocus(shell); }
         ApplySystemPalette(this);
         SetTabOrder(shell);
-        Shown += (_, _) => { Height = Math.Min(Height, Screen.FromControl(this).WorkingArea.Height); Width = Math.Min(Width, Screen.FromControl(this).WorkingArea.Width); ApplyGeometry(); if (details.Visible) scroll.ScrollControlIntoView(details); else if (folderEditor.Visible) profile.Focus(); else check.Focus(); };
+        Shown += (_, _) => { Height = Math.Min(Height, Screen.FromControl(this).WorkingArea.Height); Width = Math.Min(Width, Screen.FromControl(this).WorkingArea.Width); ApplyGeometry(); if (details.Visible) scroll.ScrollControlIntoView(details); else if (folderEditor.Visible) profile.Focus(); else check.Focus();
+            // Look up the latest release on launch. This only reads the manifest; nothing is installed.
+            if (!preview) BeginInvoke(async () => await CheckNow(quiet: true)); };
     }
 
     static readonly float Dpi = SystemDpi();
@@ -239,26 +252,57 @@ sealed class ManagerForm : Form
         mods.Columns[0].Width = width * 23 / 100; mods.Columns[1].Width = width * 21 / 100;
         mods.Columns[2].Width = width * 43 / 100; mods.Columns[3].Width = width - mods.Columns[0].Width - mods.Columns[1].Width - mods.Columns[2].Width;
     }
+    async Task CheckNow(bool quiet) => await Run(check, "Checking the staging release…", async token => {
+        // Invalidate a previous check before attempting a new one; failed checks never leave a stale install action.
+        pack = null; ShowRelease();
+        var fetched = await source.Fetch(manifest.Text.Trim(), token);
+        pack = fetched; RefreshInstalled(); ShowRelease(); Save();
+        Log($"Checked {pack.Version}: {pack.Mods.Count} pinned, checksummed files.");
+        int pending = states.Count(s => s.State != Compare.Current);
+        SetStatus(!Directory.Exists(profile.Text.Trim()) ? $"Latest release is Saturn {pack.Version}. Choose your game folder to compare it."
+            : pending == 0 ? $"You have the latest release, Saturn {pack.Version}. Nothing to install."
+            : record is not null ? $"Update available: {record.Version} → {pack.Version}. Nothing installed yet."
+            : $"Saturn {pack.Version} is not installed in this folder yet.");
+    }, quiet);
+    /// <summary>Compares the selected folder with the checked release. Reads only.</summary>
+    void Recompare() {
+        string path = profile.Text.Trim();
+        try { states = preview || pack is null || !Directory.Exists(path) ? [] : Compare.Mods(path, pack, record); }
+        catch (Exception e) { states = []; Log("Could not compare the game folder: " + e.Message); }
+    }
+    bool UpToDate() => pack is not null && (states.Count > 0 ? states.All(s => s.State == Compare.Current) : completedProfile == profile.Text.Trim() && completedVersion == pack.Version);
+    static string SizeText(long bytes) => bytes >= 1048576 ? $"{bytes / 1048576.0:0.0} MB" : $"{Math.Max(1, bytes / 1024)} KB";
+    void SetHeading(string text) { if (actionHeading is null) return; actionHeading.Text = text.ToUpperInvariant(); actionHeading.AccessibleName = text; }
     void ShowRelease() {
-        mods.Items.Clear(); ShowFolderEditor();
-        contents.Visible = pack is not null;
-        if (pack is null) { release.Text = "Not checked yet"; requirements.Text = "Check for updates to see what the latest release contains."; contents.Text = ""; return; }
+        mods.Items.Clear(); ShowFolderEditor(); Recompare();
+        contents.Visible = requirements.Visible = pack is not null;
+        if (pack is null) { release.Text = "Not checked yet"; requirements.Text = ""; contents.Text = ""; return; }
         release.Text = $"Saturn {pack.Version}";
-        requirements.Text = $"Minecraft Java {pack.Minecraft}  ·  Fabric Loader {pack.FabricLoader}";
+        requirements.Text = $"This release needs Minecraft Java {pack.Minecraft} and Fabric Loader {pack.FabricLoader}.";
         check.Text = "&Check again";
-        contents.Text = string.Join(Environment.NewLine, pack.Mods.Select(m => $"{FriendlyName(m.Id)}, {m.Size / 1048576.0:0.0} MB"));
-        foreach (var m in pack.Mods) mods.Items.Add(new ListViewItem([m.Id, m.Tag, m.Asset, $"{m.Size / 1048576.0:0.0} MB"]));
+        contents.Text = string.Join(Environment.NewLine, pack.Mods.Select(m => {
+            string state = states.FirstOrDefault(s => s.Mod.Id == m.Id).State;
+            return FriendlyName(m.Id) + (state == Compare.Current ? " — up to date" : state == Compare.Update ? $" — update available, {SizeText(m.Size)}" : state == Compare.New ? $" — not installed, {SizeText(m.Size)}" : $", {SizeText(m.Size)}");
+        }));
+        foreach (var m in pack.Mods) mods.Items.Add(new ListViewItem([m.Id, m.Tag, m.Asset, SizeText(m.Size)]));
         ScheduleGeometry(); ResizeColumns();
     }
     static string FriendlyName(string id) => id switch { "saturn_atlas" or "saturn_atlas_companion" => "Saturn Atlas companion", "fabric-api" or "fabric_api" => "Fabric API", _ => id.Replace('_', ' ').Replace('-', ' ') };
     void RefreshInstalled() {
+        record = null;
         try {
-            string file = Path.Combine(profile.Text.Trim(), ".saturn-manager", "installed.json");
+            string path = profile.Text.Trim(), file = Path.Combine(path, ".saturn-manager", "installed.json");
             if (File.Exists(file)) {
-                var record = Rules.Read<Installed>(file); completedProfile = profile.Text.Trim(); completedVersion = record.Version;
-                installed.Text = $"Installed: Saturn {record.Version}";
-            } else installed.Text = Directory.Exists(profile.Text.Trim()) ? "Nothing installed by this manager yet." : "Folder not found. Browse to an existing Minecraft game directory.";
-        } catch (Exception e) { installed.Text = "Installation record could not be read. Open technical details for the reason."; Log("Installation record: " + e.Message); }
+                record = Rules.Read<Installed>(file); completedProfile = path; completedVersion = record.Version;
+                int missing = Compare.Missing(path, record).Count;
+                installed.Text = $"Saturn {record.Version}";
+                installedNote.Text = missing == 0 ? "" : $"{missing} of its files {(missing == 1 ? "is" : "are")} missing from the mods folder. Install to repair.";
+            } else if (Directory.Exists(path)) { installed.Text = "Not installed"; installedNote.Text = "This manager has not installed Saturn in this folder."; }
+            else { installed.Text = "Folder not found"; installedNote.Text = "Browse to an existing Minecraft game directory."; }
+        } catch (Exception e) { record = null; installed.Text = "Unknown"; installedNote.Text = "Installation record could not be read. Open technical details for the reason."; Log("Installation record: " + e.Message); }
+        installedNote.Visible = installedNote.Text.Length > 0;
+        // The per-mod comparison depends on the folder, so refresh it with the record.
+        if (pack is not null && !preview) ShowRelease();
         ScheduleGeometry();
     }
     static string RecoverySummary(string path) {
@@ -279,23 +323,23 @@ sealed class ManagerForm : Form
     }
     void UpdateActions() {
         browse.Enabled = check.Enabled = profile.Enabled = manifest.Enabled = changeFolder.Enabled = !busy;
-        bool upToDate = completedProfile == profile.Text.Trim() && completedVersion == pack?.Version;
+        bool upToDate = UpToDate();
         install.Text = upToDate ? "Re&install…" : failedInstallation ? "&Try installation again" : "&Install update";
-        if (actionHeading is not null) actionHeading.Text = busy ? "Updating your mods" : failedInstallation ? "Update unsuccessful" : upToDate ? "You’re up to date" : pack is null ? "Install when ready" : "Ready to install";
+        SetHeading(busy ? "Working" : failedInstallation ? "Update unsuccessful" : upToDate ? "Latest release — you’re up to date" : pack is null ? "Latest release" : record is not null && Directory.Exists(profile.Text.Trim()) ? "New version available" : "Latest release — ready to install");
         install.AccessibleName = upToDate ? "Reinstall checked update" : failedInstallation ? "Retry checked installation" : "Install checked update";
         install.AccessibleDescription = install.Text.StartsWith("Re") ? "Install the checked version again to repair its managed files." : "Install the reviewed release into the selected game folder.";
         install.Enabled = !busy && pack is not null && Directory.Exists(profile.Text.Trim());
         rollback.Enabled = !busy && CanRestore(); cancel.Visible = busy; cancel.Enabled = busy;
-        nextStep.Text = busy ? "Please wait. Cancel safely if needed; recovery finishes before controls unlock." : completedProfile == profile.Text.Trim() && completedVersion == pack?.Version ? "Next: launch your Fabric profile and join staging." : pack is null ? "Next: check for updates. Nothing will be installed during this check." : !Directory.Exists(profile.Text.Trim()) ? "Next: choose an existing game folder to enable installation." : "Next: close Minecraft, then install. Backups are kept.";
+        nextStep.Text = busy ? "Please wait. Cancel safely if needed; recovery finishes before controls unlock." : upToDate ? "Next: launch your Fabric profile and join staging." : pack is null ? "Next: check for updates. Nothing will be installed during this check." : !Directory.Exists(profile.Text.Trim()) ? "Next: choose an existing game folder to enable installation." : "Next: close Minecraft, then install. Backups are kept.";
         AcceptButton = install.Enabled && !upToDate ? install : check; StylePrimary();
     }
-    async Task Run(Control initiator, string activity, Func<CancellationToken, Task> action) {
+    async Task Run(Control initiator, string activity, Func<CancellationToken, Task> action, bool quiet = false) {
         if (busy || preview) return;
         failedInstallation = false; busy = true; cancellation = new(); progress.Visible = true; UpdateActions(); SetStatus(activity);
         try { await action(cancellation.Token); }
         catch (OperationCanceledException) { SetStatus("Cancelled — no update completed. Check details before trying again."); Log("Operation cancelled; any started file transaction attempts recovery before returning."); }
-        catch (Exception e) { failedInstallation = ReferenceEquals(initiator, install); SetStatus("Could not complete the operation — open technical details for the reason."); Log("Stopped: " + e.Message); MessageBox.Show(this, e.Message, "Saturn update needs attention", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
-        finally { busy = false; cancellation.Dispose(); cancellation = null; progress.Visible = false; UpdateActions(); (initiator.Enabled ? initiator : check).Focus(); }
+        catch (Exception e) { failedInstallation = ReferenceEquals(initiator, install); SetStatus("Could not complete the operation — open technical details for the reason."); Log("Stopped: " + e.Message); if (quiet) SetStatus("Could not check for updates. Check your connection, then check again."); else MessageBox.Show(this, e.Message, "Saturn update needs attention", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+        finally { busy = false; cancellation.Dispose(); cancellation = null; progress.Visible = false; UpdateActions(); if (!quiet) (initiator.Enabled ? initiator : check).Focus(); }
     }
     void SetStatus(string text, bool announce = true) {
         status.Text = text; status.AccessibleDescription = text;
@@ -311,18 +355,18 @@ sealed class ManagerForm : Form
     void ConfigurePreview(string[] args) {
         updatingPreview = true;
         profile.Text = @"C:\Users\Player\AppData\Roaming\.minecraft";
-        installed.Text = "Installed: Saturn 0.1.2";
+        installed.Text = "Saturn 0.1.2"; installedNote.Text = ""; installedNote.Visible = false;
         string state = args.SkipWhile(a => a != "--ui-preview").Skip(1).FirstOrDefault() ?? "initial";
         if (state != "initial") {
             pack = new(1, "saturn", "0.1.3-preview", "26.3", "0.20.1", [new("saturn_atlas", "Zigdon7/MooreMinecraft", "staging-v0.1.3", "saturn-atlas-companion.jar", new string('a',64), 163840), new("fabric-api", "Zigdon7/MooreMinecraft", "staging-v0.1.3", "fabric-api.jar", new string('b',64), 4194304)]);
             ShowRelease(); nextStep.Text = "Next: close Minecraft, then install. Backups are kept.";
             status.Text = state switch { "busy" => "Updating mods — downloading and verifying files…", "success" => "Managed mods updated. Unrelated mods preserved.", "error" => "Could not download the update. Check your connection, then try again.", _ => "Release lists 2 pinned, checksummed files. Nothing installed yet." };
         }
-        if (state == "error") { if (actionHeading is not null) actionHeading.Text = "Update unsuccessful"; failedInstallation = true; install.Text = "&Try installation again"; install.AccessibleName = "Retry checked installation"; }
-        if (state != "initial" && state != "error" && state != "busy" && state != "success" && actionHeading is not null) actionHeading.Text = "Ready to install";
-        if (state == "busy" && actionHeading is not null) actionHeading.Text = "Updating your mods";
+        if (state == "error") { SetHeading("Update unsuccessful"); failedInstallation = true; install.Text = "&Try installation again"; install.AccessibleName = "Retry checked installation"; }
+        if (state != "initial" && state != "error" && state != "busy" && state != "success") SetHeading("New version available");
+        if (state == "busy") SetHeading("Working");
         if (state == "busy") nextStep.Text = "Please wait. Cancel safely if needed; recovery finishes before controls unlock.";
-        if (state == "success") { completedProfile = profile.Text; completedVersion = pack?.Version; if (actionHeading is not null) actionHeading.Text = "You’re up to date"; install.Text = "Re&install…"; install.AccessibleName = "Reinstall checked update"; installed.Text = "Installed: Saturn 0.1.3-preview"; nextStep.Text = "Next: launch your Fabric profile and join staging."; }
+        if (state == "success") { completedProfile = profile.Text; completedVersion = pack?.Version; SetHeading("Latest release — you’re up to date"); install.Text = "Re&install…"; install.AccessibleName = "Reinstall checked update"; installed.Text = "Saturn 0.1.3-preview"; nextStep.Text = "Next: launch your Fabric profile and join staging."; }
         if (args.Contains("--long-values")) {
             profile.Text = @"C:\Users\Player\Documents\Minecraft profiles\Saturn staging accessibility review\Instances\Long named Fabric profile for shared Atlas testing";
             if (pack is not null) { pack = pack with { Version = "0.1.3-preview-accessibility-long-label" }; ShowRelease(); }

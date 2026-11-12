@@ -25,6 +25,9 @@ function Focus-WithTabs([string]$Name) {
  throw "Keyboard cannot focus: $Name"
 }
 $resolved = (Resolve-Path $Exe).Path
+# The shell folder picker hangs unless the UI thread is a single-threaded apartment.
+$apartment = Start-Process -FilePath $resolved -ArgumentList '--check-apartment' -PassThru -Wait
+if ($apartment.ExitCode -ne 0) { throw 'UI thread is not STA: the Browse folder dialog would hang' }
 $evidence = Join-Path (Resolve-Path artifacts/manager)  $EvidenceName
 New-Item -ItemType Directory -Force -Path $evidence | Out-Null
 $cases = @(

@@ -36,16 +36,22 @@ installation mode. Fixtures do not fetch or modify game files. Actual Narrator,
 contrast themes and desktop DPI still require interactive acceptance; fixture
 font enlargement is not desktop-DPI proof. See [review evidence](docs/DESIGN-REVIEW.md).
 
-## 0.1.5 layout
+## 0.1.6
 
-One column without boxed cards or step numbers: game folder, latest release, then
-a footer that keeps the install action, recovery and status visible. Window size and
-spacing scale with the system DPI (the 0.1.4 window was a fixed 920 x 820 device pixels
-and cramped at 150%). Control names, mnemonics, the keyboard flow and the updater
-engine are unchanged.
+- **Browse fix.** The UI thread now starts in a single-threaded apartment (`[STAThread]`).
+  0.1.5 and earlier started it in the MTA, which the Windows folder picker does not support;
+  Windows logged the result as an application hang after Browse. CI asserts the apartment with
+  `--check-apartment`. The picker itself is not driven by CI.
+- **Checks on launch.** The manager reads the pack manifest when it opens. Nothing is installed
+  by a check, and a failed launch check only updates the status line.
+- **Installed against latest.** The game folder is compared with the checked release by file
+  hash: each mod is reported as up to date, update available or not installed, and a recorded
+  file missing from `mods` is called out. The comparison only reads.
+- **Layout.** The installed version is the large line in the middle of the page; the latest
+  release sits in the footer on the same line as the Install button, with Check and Restore below.
 
 Screenshots below are local captures of the offline `--ui-preview` fixtures on Windows 11
 at 150% scaling in dark mode. They are not CI evidence and not proof of a real install.
 
-![Manager with a checked release](docs/manager-0.1.5-checked.png)
-![Manager before the first check](docs/manager-0.1.5-initial.png)
+![Manager with a newer release available](docs/manager-0.1.6-checked.png)
+![Manager when up to date](docs/manager-0.1.6-success.png)

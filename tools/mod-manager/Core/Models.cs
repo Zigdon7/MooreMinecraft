@@ -16,6 +16,25 @@ public sealed record Change(string Name,string? Before,string? After);
 public sealed class Journal{
  public string Status{get;set;}="Prepared";public bool HadState{get;set;}public List<Change> Changes{get;set;}=[];
 }
+/// <summary>What a game folder holds compared with a pack. Read-only: never changes the folder.</summary>
+public static class Compare{
+ public const string Current="current",Update="update",New="new";
+ /// <summary>Per mod: Current when the pinned file is present with the pinned hash, Update when another
+ /// version of that mod is recorded or the file differs, New when the folder has no version of it.</summary>
+ public static List<(ModSpec Mod,string State)> Mods(string profile,PackManifest pack,Installed? record){
+  var result=new List<(ModSpec,string)>();string mods=Path.Combine(profile,"mods");
+  foreach(var m in pack.Mods){
+   string target=Path.Combine(mods,m.Asset);bool recorded=record?.Files?.Any(f=>f.Id==m.Id&&File.Exists(Path.Combine(mods,f.Name)))==true;
+   string state=File.Exists(target)?(Matches(target,m.Sha256)?Current:Update):recorded?Update:New;
+   result.Add((m,state));
+  }
+  return result;
+ }
+ /// <summary>Recorded files that are no longer in the mods folder.</summary>
+ public static List<string> Missing(string profile,Installed record)=>(record.Files??[]).Where(f=>!File.Exists(Path.Combine(profile,"mods",f.Name))).Select(f=>f.Name).ToList();
+ // Minecraft keeps its JARs open while running, so read without demanding exclusive access.
+ static bool Matches(string path,string hash){try{using var f=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);return Convert.ToHexStringLower(SHA256.HashData(f)).Equals(hash,StringComparison.OrdinalIgnoreCase);}catch(IOException){return false;}catch(UnauthorizedAccessException){return false;}}
+}
 public static class Rules{
  public static readonly JsonSerializerOptions Json=new(){PropertyNamingPolicy=JsonNamingPolicy.CamelCase,WriteIndented=true,PropertyNameCaseInsensitive=false};
  public static bool Id(string? x)=>x is not null&&Regex.IsMatch(x,"^[a-z][a-z0-9_-]{1,63}$");
