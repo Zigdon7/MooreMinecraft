@@ -11,7 +11,7 @@ Staging only: Java **26.3**, Fabric Loader **0.20.1**, server port **25566**, Su
 The default manifest is already configured. It installs the matching Atlas companion and Fabric API. Old copies of those mods are recognized by Fabric mod ID and backed up; unrelated mods are preserved. No ZIP copying is required for later updates: close Minecraft and use the same manager again.
 
 ## Controls
-- **M**: open the larger shared Atlas overlay. Zoom with the **-** / **+** buttons or the mouse wheel over the map: five steps from 144 to 2,304 blocks across. Zoom needs both the server plugin and the companion from this change or later; the minimap always stays at the closest view. **M** or **Esc** closes it. Rebind "Open Saturn Atlas" under Controls → Miscellaneous if needed.
+- **M**: open the larger shared Atlas overlay. Zoom with the **-** / **+** buttons or the mouse wheel over the map: seven steps from 144 to 9,216 blocks across. Zoom needs both the server plugin and the companion from this change or later; the minimap always stays at the closest view. **M** or **Esc** closes it. Rebind "Open Saturn Atlas" under Controls → Miscellaneous if needed.
 - A north-up **minimap appears at top right**, using the same shared exploration and lodestones, plus your own personal markers. Refresh is bounded to once per five seconds, and the server maps the 9 x 9 chunks around each player first, so walked terrain appears on the next refresh; F1 hides it with the rest of the HUD.
 - Unknown terrain remains blank. This alpha samples coarse surface terrain, not caves or a full vanilla-quality world renderer.
 - `/saturnmap` still opens the same overlay. Vanilla Java clients can use `/atlas view` without the companion.
