@@ -14,14 +14,33 @@ pub const BUDGET: usize = 8;
 pub const BACKLOG: usize = 4096;
 
 /// Zoom levels a companion may request: one snapshot tile spans `zoom` x `zoom` chunks.
-pub const ZOOMS: [u32; 5] = [1, 2, 4, 8, 16];
-pub const MAX_ZOOM: u32 = 16;
+pub const ZOOMS: [u32; 7] = [1, 2, 4, 8, 16, 32, 64];
+pub const MAX_ZOOM: u32 = 64;
+/// Widest zoom companions before 0.1.4 accept in a reply; they reject a larger `max_zoom`.
+pub const LEGACY_MAX_ZOOM: u32 = 16;
 /// Unsupported requests fall back to the closest view.
 pub fn valid_zoom(zoom: u32) -> u32 {
     if ZOOMS.contains(&zoom) { zoom } else { 1 }
 }
+/// Furthest a companion may ask to look from the world origin, in blocks.
+pub const MAX_CENTER: i32 = 30_000_000;
+/// Parses the optional "<x> <z>" block coordinates of a panned view. Anything malformed or out
+/// of range means "follow the player".
+pub fn parse_center(text: &str) -> Option<(i32, i32)> {
+    let mut words = text.split_whitespace();
+    let x = words.next()?.parse::<i32>().ok()?;
+    let z = words.next()?.parse::<i32>().ok()?;
+    (words.next().is_none() && x.abs() <= MAX_CENTER && z.abs() <= MAX_CENTER).then_some((x, z))
+}
+/// Snapshot tile containing block (`x`, `z`) at `zoom`.
+pub fn center_tile(zoom: u32, x: i32, z: i32) -> (i32, i32) {
+    let span = 16 * zoom as i32;
+    (x.div_euclid(span), z.div_euclid(span))
+}
 /// The 4 x 4 pixels of snapshot tile (`tx`, `tz`) at `zoom`, each taken from the mapped chunk
-/// pixel under its centre. Unmapped terrain is 0; a tile with no mapped pixel is `None`.
+/// pixel under its centre. When a pixel spans several chunks and the centre one is unmapped,
+/// the centres of its four quarters are tried, so thin explored trails still show when zoomed
+/// far out. Unmapped terrain is 0; a tile with no mapped pixel is `None`.
 /// At zoom 1 this is the chunk's own tile.
 pub fn zoom_tile<'a>(
     zoom: u32,
@@ -35,12 +54,24 @@ pub fn zoom_tile<'a>(
         for i in 0..4 {
             let x = tx * 16 * zoom + i * 4 * zoom + 2 * zoom;
             let z = tz * 16 * zoom + j * 4 * zoom + 2 * zoom;
-            let index = (z.rem_euclid(16) / 4 * 4 + x.rem_euclid(16) / 4) as usize;
-            pixels.push(
+            let at = |x: i32, z: i32| {
+                let index = (z.rem_euclid(16) / 4 * 4 + x.rem_euclid(16) / 4) as usize;
                 chunk(x.div_euclid(16), z.div_euclid(16))
                     .and_then(|p| p.get(index).copied())
-                    .unwrap_or(0),
-            );
+                    .filter(|c| *c != 0)
+            };
+            // A pixel is 4 * zoom blocks wide; from zoom 8 that is more than one chunk.
+            let q = zoom;
+            let colour = at(x, z).or_else(|| {
+                (zoom >= 8)
+                    .then(|| {
+                        [(-q, -q), (q, -q), (-q, q), (q, q)]
+                            .into_iter()
+                            .find_map(|(dx, dz)| at(x + dx, z + dz))
+                    })
+                    .flatten()
+            });
+            pixels.push(colour.unwrap_or(0));
         }
     }
     pixels.iter().any(|p| *p != 0).then_some(pixels)
@@ -146,12 +177,27 @@ mod tests {
     }
 
     #[test]
+    fn panned_centres_are_parsed_strictly_and_map_to_tiles() {
+        assert_eq!(parse_center("120 -340"), Some((120, -340)));
+        assert_eq!(parse_center("  7   8 "), Some((7, 8)));
+        for bad in ["", "5", "a b", "1 2 3", "1.5 2", "30000001 0", "0 -30000001"] {
+            assert_eq!(parse_center(bad), None, "{bad}");
+        }
+        assert_eq!(center_tile(1, 0, 0), (0, 0));
+        assert_eq!(center_tile(1, -1, 16), (-1, 1));
+        assert_eq!(center_tile(4, 63, 64), (0, 1));
+        assert_eq!(center_tile(16, -1, -257), (-1, -2));
+    }
+    #[test]
     fn zoom_one_is_the_chunk_tile_and_unknown_requests_fall_back() {
         let tile: Vec<u8> = (1..=16).collect();
         let got = zoom_tile(1, -3, 7, |x, z| (x == -3 && z == 7).then_some(&tile[..]));
         assert_eq!(got, Some(tile.clone()));
         assert_eq!(zoom_tile(1, 0, 0, |_, _| None), None);
-        assert_eq!([valid_zoom(0), valid_zoom(3), valid_zoom(4), valid_zoom(32)], [1, 1, 4, 1]);
+        assert_eq!(
+            [valid_zoom(0), valid_zoom(3), valid_zoom(4), valid_zoom(32), valid_zoom(64), valid_zoom(128)],
+            [1, 1, 4, 32, 64, 1]
+        );
     }
 
     #[test]
@@ -179,6 +225,19 @@ mod tests {
         assert_eq!(zoom_tile(16, 5, 5, get), None, "outside mapped terrain");
     }
 
+    #[test]
+    fn far_zoom_shows_a_thin_explored_trail() {
+        // One mapped chunk in an otherwise blank world, not under any pixel centre at zoom 64.
+        let tile = vec![6u8; 16];
+        let get = |x: i32, z: i32| (x == 4 && z == 4).then_some(&tile[..]);
+        // Zoom 64: a pixel is 256 blocks (16 chunks); pixel 0 of tile (0, 0) is centred on
+        // chunk (8, 8) and its first quarter on chunk (4, 4).
+        let t = zoom_tile(64, 0, 0, get).expect("the trail is visible");
+        assert_eq!(t[0], 6);
+        assert!(t[1..].iter().all(|p| *p == 0));
+        // Close views are unchanged: no neighbouring chunk bleeds into an unmapped one.
+        assert_eq!(zoom_tile(4, 0, 0, |x, z| (x == 1 && z == 0).then_some(&tile[..])).unwrap()[0], 0);
+    }
     #[test]
     fn queue_dedupes_and_drops_oldest_when_full() {
         let mut q = ExploreQueue::new(2);

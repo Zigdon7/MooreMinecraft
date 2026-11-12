@@ -14,6 +14,31 @@ class AtlasModelTest {
  var b=base();var tile=JsonParser.parseString("{\"x\":-1,\"z\":-2,\"pixels\":[256,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}");b.getAsJsonArray("tiles").add(tile);var m=new AtlasModel();m.receive(b.toString(),0);assertEquals(AtlasModel.State.ERROR,m.state);}
  @Test void quoteControlsRequireSelectionBalanceAndUnexpiredMatchingQuote(){var b=base();b.getAsJsonArray("anchors").add(point());b.add("quote",JsonParser.parseString("{\"destination\":\""+ID+"\",\"price\":2,\"remaining_ms\":10}"));var m=new AtlasModel();m.receive(b.toString(),100);assertFalse(m.canConfirm(100));m.selected=ID;assertTrue(m.canQuote());assertTrue(m.canConfirm(100));assertFalse(m.canConfirm(10_000_100));b.addProperty("balance",1);m.receive(b.toString(),100);assertFalse(m.canConfirm(100));}
  @Test void freeQuoteNeedsNoShards(){var b=base();b.addProperty("balance",0);b.getAsJsonArray("anchors").add(point());b.add("quote",JsonParser.parseString("{\"destination\":\""+ID+"\",\"price\":0,\"remaining_ms\":10}"));var m=new AtlasModel();m.receive(b.toString(),100);assertEquals(AtlasModel.State.READY,m.state);m.selected=ID;assertEquals("Travel: free",m.travelHint(100));assertTrue(m.canConfirm(100));assertFalse(m.canConfirm(10_000_100));b.getAsJsonObject("quote").addProperty("price",-1);m.receive(b.toString(),100);assertEquals(AtlasModel.State.ERROR,m.state);}
+ @Test void widerZoomUsesTheZoomLimitFieldAndOlderRepliesStillWork(){
+  var b=base();b.addProperty("zoom",1);b.addProperty("max_zoom",16);b.addProperty("zoom_limit",64);
+  var m=new AtlasModel();m.receive(b.toString(),0);assertEquals(AtlasModel.State.READY,m.state);assertEquals(64,m.maxZoom());
+  for(int i=0;i<6;i++)assertTrue(m.zoomBy(1));assertEquals(64,m.zoom);assertFalse(m.zoomBy(1));assertEquals("atlas sync 64",m.syncCommand(true));
+  b.addProperty("zoom",64);b.addProperty("max_zoom",64);m.receive(b.toString(),0);assertEquals(AtlasModel.State.READY,m.state);assertEquals(9216,m.snapshot.span());
+  var old=base();old.addProperty("zoom",1);old.addProperty("max_zoom",16);m.receive(old.toString(),0);assertEquals(16,m.maxZoom());assertEquals(16,m.zoom,"clamped to an older server's limit");
+ }
+ @Test void draggingIsOfferedOnlyWhenTheServerReportsTheViewCentre(){
+  var m=new AtlasModel();m.receive(base().toString(),0);assertFalse(m.canPan());assertFalse(m.panBy(10,10));assertFalse(m.panned);assertEquals("atlas sync",m.syncCommand(true));
+  var b=base();b.addProperty("x",100.5);b.addProperty("z",200.5);b.addProperty("zoom",1);b.addProperty("max_zoom",16);b.addProperty("cx",100);b.addProperty("cz",200);
+  m.receive(b.toString(),0);assertEquals(AtlasModel.State.READY,m.state);assertTrue(m.canPan());assertFalse(m.viewOutdated());
+  assertTrue(m.panBy(5,-5));assertTrue(m.panned);assertEquals(105,m.viewX);assertEquals(195,m.viewZ);assertFalse(m.viewOutdated(),"still inside the fetched tile ring");
+  assertEquals("atlas sync 1 105 195",m.syncCommand(true));assertEquals("atlas sync",m.syncCommand(false),"minimap keeps following the player");
+  assertTrue(m.panBy(-200.25,0));assertTrue(m.viewOutdated());assertEquals("atlas sync 1 -96 195",m.syncCommand(true));
+  assertTrue(m.zoomBy(1));assertEquals("atlas sync 2 -96 195",m.syncCommand(true));
+  m.recenter();assertFalse(m.panned);assertFalse(m.viewOutdated());assertEquals("atlas sync 2",m.syncCommand(true));
+  m.panBy(1,1);m.receive(base().toString(),0);assertFalse(m.panned,"a server without dragging drops the pan");m.reset();assertFalse(m.panned);
+ }
+ @Test void pannedTilesAreValidatedAroundTheReportedCentreNotThePlayer(){
+  var b=base();b.addProperty("x",0.5);b.addProperty("z",0.5);b.addProperty("zoom",1);b.addProperty("max_zoom",16);b.addProperty("cx",1600);b.addProperty("cz",-1600);
+  var t=JsonParser.parseString("{\"x\":104,\"z\":-96,\"pixels\":[6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6]}").getAsJsonObject();b.getAsJsonArray("tiles").add(t);
+  var m=new AtlasModel();m.receive(b.toString(),0);assertEquals(AtlasModel.State.READY,m.state);assertEquals(1600,m.snapshot.centerX());assertEquals(0.5,m.snapshot.x());
+  t.addProperty("x",0);m.receive(b.toString(),0);assertEquals(AtlasModel.State.ERROR,m.state,"tiles around the player are outside a panned view");
+  var c=base();c.addProperty("cx",1e100);c.addProperty("cz",0);m=new AtlasModel();m.receive(c.toString(),0);assertEquals(AtlasModel.State.ERROR,m.state);
+ }
  @Test void zoomIsOfferedOnlyWhenTheServerSupportsItAndIsBounded(){
   var m=new AtlasModel();m.receive(base().toString(),0);assertEquals(1,m.maxZoom());assertFalse(m.canZoomOut());assertFalse(m.zoomBy(1));assertEquals("atlas sync",m.syncCommand(true));
   var b=base();b.addProperty("zoom",1);b.addProperty("max_zoom",16);m.receive(b.toString(),0);assertEquals(144,m.snapshot.span());
@@ -27,7 +52,7 @@ class AtlasModelTest {
   var t=JsonParser.parseString("{\"x\":15,\"z\":-16,\"pixels\":[6,0,6,6,6,6,6,6,6,6,6,6,6,6,6,0]}").getAsJsonObject();b.getAsJsonArray("tiles").add(t);
   var m=new AtlasModel();m.receive(b.toString(),0);assertEquals(AtlasModel.State.READY,m.state);assertEquals(4,m.snapshot.zoom());assertEquals(576,m.snapshot.span());assertEquals(0,m.snapshot.tiles().getFirst().pixels()[1]);
   t.addProperty("x",62);m.receive(b.toString(),0);assertEquals(AtlasModel.State.ERROR,m.state,"chunk coordinates are out of range at zoom 4");
-  for(String[] bad:new String[][]{{"3","16"},{"8","4"},{"32","32"},{"0","16"}}){var c=base();c.addProperty("zoom",Integer.parseInt(bad[0]));c.addProperty("max_zoom",Integer.parseInt(bad[1]));m=new AtlasModel();m.receive(c.toString(),0);assertEquals(AtlasModel.State.ERROR,m.state,bad[0]+"/"+bad[1]);}
+  for(String[] bad:new String[][]{{"3","16"},{"8","4"},{"128","128"},{"0","16"}}){var c=base();c.addProperty("zoom",Integer.parseInt(bad[0]));c.addProperty("max_zoom",Integer.parseInt(bad[1]));m=new AtlasModel();m.receive(c.toString(),0);assertEquals(AtlasModel.State.ERROR,m.state,bad[0]+"/"+bad[1]);}
  }
  @Test void removedSelectionIsCleared(){var b=base();b.getAsJsonArray("anchors").add(point());var m=new AtlasModel();m.receive(b.toString(),0);m.selected=ID;assertTrue(m.canQuote());m.receive(base().toString(),0);assertEquals("",m.selected);assertFalse(m.canQuote());}
  @Test void duplicateOrInjectionDestinationsRejected(){var b=base();var a=point();a.addProperty("id","foo;op player");b.getAsJsonArray("anchors").add(a);var m=new AtlasModel();m.receive(b.toString(),0);assertEquals(AtlasModel.State.ERROR,m.state);b=base();b.getAsJsonArray("anchors").add(point());b.getAsJsonArray("anchors").add(point());m.receive(b.toString(),0);assertEquals(AtlasModel.State.ERROR,m.state);}

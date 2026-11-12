@@ -57,6 +57,8 @@ pub struct Runtime {
     pub views: BTreeMap<String, u32>,
     /// Zoom each companion last asked for; snapshots sent after other commands reuse it.
     pub zooms: BTreeMap<String, u32>,
+    /// Block the companion's open map is panned to; absent means it follows the player.
+    pub centers: BTreeMap<String, (i32, i32)>,
     /// Players asked to type a new lodestone name in chat: player -> (anchor id, expiry ms).
     pub renames: BTreeMap<String, (String, u64)>,
     pub serial: u64,
@@ -445,7 +447,14 @@ fn atlas_command(shared: &Shared, p: &Player, args: &str) -> Result<String, Stri
     let rest = words.next().unwrap_or("");
     match action {
         // A bare sync is the closest view; `sync <zoom>` asks for a wider one.
-        "sync" => sync_companion(shared, p, Some(sub.parse().unwrap_or(1))),
+        // `sync <zoom> <x> <z>` looks at another part of the shared map.
+        "sync" => {
+            match explore::parse_center(rest) {
+                Some(c) => lock(shared)?.centers.insert(id, c),
+                None => lock(shared)?.centers.remove(&id),
+            };
+            sync_companion(shared, p, Some(sub.parse().unwrap_or(1)))
+        }
         "view" | "center" => {
             ensure_map(p)?;
             render(shared, p)?;
@@ -970,6 +979,9 @@ impl EventHandler<PlayerJoinEvent> for JoinSnapshot {
         pumpkin_plugin_api::scheduler::schedule_delayed_task(20, move |server| {
             if let Some(p) = server.get_player_by_uuid(id) {
                 if p.as_java().is_some() {
+                    if let Ok(mut r) = shared.lock() {
+                        r.centers.remove(&uuid::to_string(id));
+                    }
                     let _ = sync_companion(&shared, &p, Some(1));
                 }
             }
@@ -1152,10 +1164,14 @@ fn sync_companion(shared: &Shared, p: &Player, requested: Option<u32>) -> Result
         None => *r.zooms.get(&id).unwrap_or(&1),
     };
     let r = r;
-    // Tiles are in units of `zoom` chunks, centred on the tile the player stands in.
-    let span = 16 * zoom as i32;
-    let cx = (at.x.floor() as i32).div_euclid(span);
-    let cz = (at.z.floor() as i32).div_euclid(span);
+    // Tiles are in units of `zoom` chunks, centred on the tile the player stands in, or on the
+    // block the open map was dragged to.
+    let (view_x, view_z) = r
+        .centers
+        .get(&id)
+        .copied()
+        .unwrap_or((at.x.floor() as i32, at.z.floor() as i32));
+    let (cx, cz) = explore::center_tile(zoom, view_x, view_z);
     let mut tiles = vec![];
     for tz in cz - explore::VIEW_RADIUS..=cz + explore::VIEW_RADIUS {
         for tx in cx - explore::VIEW_RADIUS..=cx + explore::VIEW_RADIUS {
@@ -1189,7 +1205,7 @@ fn sync_companion(shared: &Shared, p: &Player, requested: Option<u32>) -> Result
         .take(40)
         .map(|m| serde_json::json!({"id":m.id,"name":m.name,"x":m.position.x,"z":m.position.z}))
         .collect();
-    let text=serde_json::to_string(&serde_json::json!({"v":1,"world":at.world,"x":at.x,"z":at.z,"zoom":zoom,"max_zoom":explore::MAX_ZOOM,"tiles":tiles,"anchors":anchors,"markers":markers,"balance":balance(p),"quote":r.quotes.get(&id).filter(|q|q.expires_ms>now()).map(|q|serde_json::json!({"destination":q.destination,"price":q.price,"remaining_ms":q.expires_ms.saturating_sub(now()).min(15000)}))})).map_err(|e|e.to_string())?;
+    let text=serde_json::to_string(&serde_json::json!({"v":1,"world":at.world,"x":at.x,"z":at.z,"zoom":zoom,"max_zoom":explore::MAX_ZOOM.min(explore::LEGACY_MAX_ZOOM.max(zoom)),"zoom_limit":explore::MAX_ZOOM,"cx":view_x,"cz":view_z,"tiles":tiles,"anchors":anchors,"markers":markers,"balance":balance(p),"quote":r.quotes.get(&id).filter(|q|q.expires_ms>now()).map(|q|serde_json::json!({"destination":q.destination,"price":q.price,"remaining_ms":q.expires_ms.saturating_sub(now()).min(15000)}))})).map_err(|e|e.to_string())?;
     if text.len() > 32000 {
         return Err("Map snapshot exceeds protocol size limit".into());
     }

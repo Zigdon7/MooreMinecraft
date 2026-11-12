@@ -17,6 +17,8 @@ The default manifest is already configured. It installs the matching Atlas compa
 - `/saturnmap` still opens the same overlay. Vanilla Java clients can use `/atlas view` without the companion.
 
 ## Travel
+In the open Atlas, drag the map with the left mouse button to look at other explored terrain and press **Center** in the header to return to yourself; the `-` / `+` buttons and mouse wheel zoom between 144 and 9,216 blocks across. Dragging and the two widest zoom steps need both the updated server plugin and companion; they are unit-tested but not yet verified in game.
+
 Placing a vanilla lodestone registers it as a waypoint shared with all players, named "Lodestone N" for the player who placed it; breaking it removes the waypoint. Right-click a lodestone you own (not holding a compass) and type the new name in chat to rename it, or use `/lodestone rename <name>` within 6 blocks. Right-clicking an unregistered lodestone claims it. `/lodestone create <name>` still registers one you are looking at or standing next to. These lodestone events are built and unit-tested but not yet verified on the staging server. Owners can use `/lodestone access <id> public` to share it. Select an accessible destination, request a quote, then confirm before it expires while near an origin lodestone. **Travel is temporarily free** while lodestone spawning is being fixed; the quote and confirm steps are unchanged. Distance pricing in amethyst shards returns by setting `FREE_TRAVEL` to `false` in `mods/saturn-atlas/core/src/lib.rs`. Free quotes need the companion built from this change or later; an older companion shows "Invalid map reply" while a free quote is active, and `/lodestone confirm` in chat still works.
 
 ## Update/rollback boundaries

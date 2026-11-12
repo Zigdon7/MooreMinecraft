@@ -15,5 +15,14 @@ class AtlasInputViewportTest {
    assertEquals(0,v.z((Math.floorDiv(1000,tile)-4)*tile),"first row of the 9 x 9 snapshot starts at the top edge");assertTrue(v.contains(v.x(-0.5),v.z(1000),3));}
   assertEquals(AtlasViewport.of(5,5,200,100),AtlasViewport.of(5,5,200,100,1));assertThrows(IllegalArgumentException.class,()->AtlasViewport.of(0,0,10,10,0));
  }
+ @Test void draggedProjectionIsCentredExactlyOnTheViewAtTheSameScale(){
+  for(int zoom:new int[]{1,4,16}){var v=AtlasViewport.centered(-37.5,912.25,220,156,zoom);assertEquals(AtlasViewport.of(0,0,220,156,zoom).scale(),v.scale(),1e-12);assertEquals(110,v.x(-37.5));assertEquals(78,v.z(912.25));}
+  assertThrows(IllegalArgumentException.class,()->AtlasViewport.centered(0,0,0,10,1));
+ }
+ @Test void recenterButtonSitsInTheHeaderClearOfOtherControls(){
+  for(int[] size:new int[][]{{380,200},{427,240},{640,360},{960,540}}){var l=AtlasLayout.of(size[0],size[1]);var r=l.recenter();assertTrue(r.w()>0&&r.x()>=120,"room for the title at "+size[0]);
+   var text=new AtlasLayout.Rect(size[0]-108,7,46,18);assertFalse(r.overlaps(text));for(var other:new AtlasLayout.Rect[]{l.map(),l.sidebar(),l.refresh(),l.held(),l.quote(),l.confirm(),l.close(),l.zoomIn(),l.zoomOut()})assertFalse(r.overlaps(other),size[0]+"x"+size[1]);}
+  assertEquals(0,AtlasLayout.of(300,180).recenter().w(),"compact layout has no map to drag");
+ }
  @Test void negativeCoordinateProjectionStaysCentered(){var v=AtlasViewport.of(-0.5,-16.5,220,156);assertEquals(110,v.x(-8));assertEquals(78,v.z(-24));assertTrue(v.contains(v.x(-0.5),v.z(-16.5),3));assertFalse(v.contains(10,156,3));}
 }

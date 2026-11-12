@@ -10,6 +10,12 @@ public record AtlasViewport(double startX,double startZ,double scale,int width,i
   double cx=Math.floor(playerX/tile)*tile+tile/2,cz=Math.floor(playerZ/tile)*tile+tile/2;
   return new AtlasViewport(cx-width/(2*scale),cz-height/(2*scale),scale,width,height);
  }
+ /** Centred exactly on a block position, for a map that has been dragged. */
+ public static AtlasViewport centered(double centerX,double centerZ,int width,int height,int zoom){
+  if(width<=0||height<=0||zoom<=0)throw new IllegalArgumentException("Empty viewport");
+  double scale=Math.min(width,height)/(9*16.0*zoom);
+  return new AtlasViewport(centerX-width/(2*scale),centerZ-height/(2*scale),scale,width,height);
+ }
  public int x(double worldX){return (int)Math.floor((worldX-startX)*scale);}
  public int z(double worldZ){return (int)Math.floor((worldZ-startZ)*scale);}
  public boolean contains(int x,int z,int margin){return x>=margin&&z>=margin&&x<width-margin&&z<height-margin;}

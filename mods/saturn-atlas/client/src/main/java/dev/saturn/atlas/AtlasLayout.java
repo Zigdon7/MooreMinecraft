@@ -5,6 +5,8 @@ public record AtlasLayout(int width,int height,boolean compact,Rect map,Rect sid
  /** Zoom controls sit in the footer between Held Atlas and Close; absent in the compact layout. */
  public Rect zoomOut(){return compact?new Rect(0,0,0,0):new Rect(210,height-28,20,20);}
  public Rect zoomIn(){return compact?new Rect(0,0,0,0):new Rect(234,height-28,20,20);}
+ /** Returns the dragged map to the player; in the header beside Text and HUD. */
+ public Rect recenter(){return compact?new Rect(0,0,0,0):new Rect(width-166,7,54,18);}
  public static boolean utilitySupported(int width,int height){return width>=240&&height>=150;}
  public static Rect[] utilityControls(int width,int height,boolean settings){
   if(!utilitySupported(width,height)){int x=Math.min(12,Math.max(0,width/2));return new Rect[]{new Rect(x,Math.max(0,height-28),Math.max(0,width-2*x),Math.min(20,Math.max(0,height)))};}

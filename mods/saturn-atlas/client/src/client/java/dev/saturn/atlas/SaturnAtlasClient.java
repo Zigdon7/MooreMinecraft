@@ -6,6 +6,7 @@ import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal;
@@ -184,7 +185,8 @@ public final class SaturnAtlasClient implements ClientModInitializer {
         }
     }
     static final class AtlasScreen extends Screen {
-        AtlasLayout layout;Button quote,confirm,zoomOut,zoomIn;int page;
+        AtlasLayout layout;Button quote,confirm,zoomOut,zoomIn,recenter;int page;
+        boolean draggingMap;long lastPanRequest;
         final java.util.Map<Button,String> focusKeys=new java.util.IdentityHashMap<>();
         AtlasScreen(){super(Component.literal("Saturn Atlas"));}
         @Override public Component getNarrationMessage(){
@@ -210,8 +212,9 @@ public final class SaturnAtlasClient implements ClientModInitializer {
         @Override protected void init(){
             focusKeys.clear();quote=null;confirm=null;layout=AtlasLayout.of(width,height);
             add("Refresh",layout.refresh(),()->request(model.syncCommand(true)));
-            zoomOut=zoomIn=null;
+            zoomOut=zoomIn=recenter=null;
             if(!layout.compact()){
+                recenter=add("Center","Center the map on you again",layout.recenter(),()->{model.recenter();request(model.syncCommand(true));rebuild();});
                 zoomOut=add("-","Zoom out: show a wider area",layout.zoomOut(),()->zoom(1));
                 zoomIn=add("+","Zoom in: show a closer area",layout.zoomIn(),()->zoom(-1));
             }
@@ -239,9 +242,32 @@ public final class SaturnAtlasClient implements ClientModInitializer {
             if(layout!=null&&!layout.compact()&&scrollY!=0&&mouseX>=layout.map().x()&&mouseX<layout.map().right()&&mouseY>=layout.map().y()&&mouseY<layout.map().bottom()){zoom(scrollY<0?1:-1);return true;}
             return super.mouseScrolled(mouseX,mouseY,scrollX,scrollY);
         }
+        boolean overMap(double x,double y){return layout!=null&&!layout.compact()&&x>=layout.map().x()&&x<layout.map().right()&&y>=layout.map().y()&&y<layout.map().bottom();}
+        /** Drag with the left button to look at another part of the shared map. */
+        @Override public boolean mouseClicked(MouseButtonEvent event,boolean doubleClick){
+            if(super.mouseClicked(event,doubleClick))return true;
+            if(event.button()==0&&overMap(event.x(),event.y())&&model.canPan()){draggingMap=true;return true;}
+            return false;
+        }
+        @Override public boolean mouseDragged(MouseButtonEvent event,double dx,double dy){
+            if(!draggingMap||model.snapshot==null)return super.mouseDragged(event,dx,dy);
+            double scale=AtlasViewport.centered(0,0,layout.map().w(),layout.map().h(),model.snapshot.zoom()).scale();
+            if(model.panBy(-dx/scale,-dy/scale)){
+                // Fetch the terrain under the new view while dragging, at most a few times a second.
+                long now=System.nanoTime();
+                if(model.viewOutdated()&&now-lastPanRequest>300_000_000L){lastPanRequest=now;request(model.syncCommand(true));}
+                controls();
+            }
+            return true;
+        }
+        @Override public boolean mouseReleased(MouseButtonEvent event){
+            if(draggingMap&&event.button()==0){draggingMap=false;if(model.viewOutdated()){lastPanRequest=System.nanoTime();request(model.syncCommand(true));}return true;}
+            return super.mouseReleased(event);
+        }
         /** Leaving the map returns the minimap to the closest view without waiting for its next poll. */
-        @Override public void removed(){super.removed();var c=Minecraft.getInstance();if(model.snapshot!=null&&model.snapshot.zoom()>1&&c.getConnection()!=null)c.getConnection().sendCommand("atlas sync");}
+        @Override public void removed(){super.removed();var c=Minecraft.getInstance();boolean moved=model.panned;model.recenter();if(model.snapshot!=null&&(model.snapshot.zoom()>1||moved)&&c.getConnection()!=null)c.getConnection().sendCommand("atlas sync");}
         void controls(){
+            if(recenter!=null){recenter.active=model.panned;recenter.setTooltip(Tooltip.create(Component.literal(!model.canPan()&&model.snapshot!=null?"This server does not support dragging the map yet":model.panned?"Center the map on you again":"Drag the map to look around; this brings it back to you")));}
             if(zoomOut!=null){zoomOut.active=model.canZoomOut();zoomOut.setTooltip(Tooltip.create(Component.literal(model.maxZoom()==1?"This server does not offer wider map views yet":model.canZoomOut()?"Zoom out: show a wider area (or scroll down over the map)":"Widest view")));}
             if(zoomIn!=null){zoomIn.active=model.canZoomIn();zoomIn.setTooltip(Tooltip.create(Component.literal(model.canZoomIn()?"Zoom in: show a closer area (or scroll up over the map)":"Closest view")));}
             if(quote!=null)quote.active=model.canQuote();if(confirm!=null){confirm.active=model.canConfirm(System.nanoTime());confirm.setTooltip(Tooltip.create(Component.literal(model.travelHint(System.nanoTime()))));}}
@@ -256,7 +282,7 @@ public final class SaturnAtlasClient implements ClientModInitializer {
         }
         @Override public void extractRenderState(GuiGraphicsExtractor g,int mouseX,int mouseY,float delta){
             g.fill(0,0,width,height,0xff111b28);g.fill(8,6,width-8,26,0xff1c3544);super.extractRenderState(g,mouseX,mouseY,delta);
-            g.text(font,font.plainSubstrByWidth("ATLAS | "+openHint()+" / Esc: Close | Tab",Math.max(0,width-130)),14,12,0xffd8f9ff,true);
+            g.text(font,font.plainSubstrByWidth("ATLAS | "+openHint()+" / Esc: Close | Tab",Math.max(0,width-(layout.compact()?130:188))),14,12,0xffd8f9ff,true);
             if(layout.compact()){
                 g.text(font,"LODESTONES (compact list)",12,27,0xffd8f9ff,false);
                 g.text(font,font.plainSubstrByWidth(model.freshness(System.nanoTime())+" | "+model.travelHint(System.nanoTime()),width-24),12,height-76,0xffffcf80,false);
@@ -268,20 +294,20 @@ public final class SaturnAtlasClient implements ClientModInitializer {
             g.fill(left-1,top-1,map.right()+1,map.bottom()+1,0xff53737f);g.fill(left,top,map.right(),map.bottom(),0xff172735);
             g.text(font,"LODESTONES",layout.sidebar().x(),27,0xffa8edf0,false);
             if(model.snapshot!=null){
-                var s=model.snapshot;var view=AtlasViewport.of(s.x(),s.z(),map.w(),map.h(),s.zoom());int step=4*s.zoom();
+                var s=model.snapshot;var view=model.panned?AtlasViewport.centered(model.viewX,model.viewZ,map.w(),map.h(),s.zoom()):AtlasViewport.of(s.x(),s.z(),map.w(),map.h(),s.zoom());int step=4*s.zoom();
                 double startX=view.startX(),startZ=view.startZ(),scale=view.scale();
                 g.enableScissor(left,top,map.right(),map.bottom());
                 for(var t:s.tiles()){for(int i=0;i<16;i++){if(t.pixels()[i]==0)continue;int px=(int)Math.floor(((t.x()*4+i%4)*step-startX)*scale),py=(int)Math.floor(((t.z()*4+i/4)*step-startZ)*scale);g.fill(left+px,top+py,Math.min(map.right(),left+px+(int)Math.ceil(step*scale)),Math.min(map.bottom(),top+py+(int)Math.ceil(step*scale)),color(t.pixels()[i]));}}
                 for(var p:s.markers())point(g,p,left,top,startX,startZ,scale,map.w(),map.h(),0xffffd56a);
                 for(var p:s.anchors())point(g,p,left,top,startX,startZ,scale,map.w(),map.h(),0xff8aeeff);
-                int px=left+(int)((s.x()-startX)*scale),py=top+(int)((s.z()-startZ)*scale);player(g,px,py);
+                int px=left+(int)((s.x()-startX)*scale),py=top+(int)((s.z()-startZ)*scale);if(px>=-5&&py>=-5&&px<map.w()+left+5&&py<map.h()+top+5)player(g,px,py);
                 g.disableScissor();
                 g.fill(map.right()-14,top+3,map.right()-3,top+15,0xee111b28);
                 g.text(font,"N",map.right()-11,top+5,0xffffffff,true);
-                String span="View: "+s.span()+" blocks";g.fill(left+3,top+3,left+9+font.width(span),top+15,0xee111b28);g.text(font,span,left+6,top+5,0xffedf5fa,true);
+                String span="View: "+s.span()+" blocks"+(model.panned?" | centre "+(int)Math.floor(model.viewX)+", "+(int)Math.floor(model.viewZ):model.canPan()?" | drag to look around":"");g.fill(left+3,top+3,left+9+font.width(span),top+15,0xee111b28);g.text(font,span,left+6,top+5,0xffedf5fa,true);
                 g.fill(left+3,map.bottom()-14,map.right()-3,map.bottom()-2,0xee111b28);
                 g.text(font,font.plainSubstrByWidth("+ You   [] Stone   <> Marker",size-12),left+6,map.bottom()-12,0xffedf5fa,true);
-                if(s.anchors().isEmpty())lines(g,"No accessible lodestones. Place a lodestone, then use /lodestone create <name>.",layout.sidebar().x(),42,layout.sidebar().w(),4,0xffbac7d5);
+                if(s.anchors().isEmpty())lines(g,"No lodestones yet. Place a lodestone and it appears here for everyone; right-click it to rename.",layout.sidebar().x(),42,layout.sidebar().w(),4,0xffbac7d5);
                 drawPageCount(g,s);
                 String cost=model.travelHint(System.nanoTime());
                 g.text(font,font.plainSubstrByWidth(cost,layout.sidebar().w()),layout.sidebar().x(),height-76,0xffffcf80,false);

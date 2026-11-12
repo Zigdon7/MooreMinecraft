@@ -11,8 +11,8 @@ public final class AtlasModel {
     public record Point(String id,String name,double x,double z) {}
     public record Quote(String destination,int price,long expiresNanos) {}
     /** Tile coordinates are in units of {@code zoom} chunks; {@code maxZoom} is 1 for servers without zoom. */
-    public record Snapshot(String world,double x,double z,int balance,List<Tile> tiles,List<Point> anchors,List<Point> markers,Quote quote,int zoom,int maxZoom) {
-        public Snapshot(String world,double x,double z,int balance,List<Tile> tiles,List<Point> anchors,List<Point> markers,Quote quote){this(world,x,z,balance,tiles,anchors,markers,quote,1,1);}
+    public record Snapshot(String world,double x,double z,int balance,List<Tile> tiles,List<Point> anchors,List<Point> markers,Quote quote,int zoom,int maxZoom,double centerX,double centerZ,boolean pannable) {
+        public Snapshot(String world,double x,double z,int balance,List<Tile> tiles,List<Point> anchors,List<Point> markers,Quote quote){this(world,x,z,balance,tiles,anchors,markers,quote,1,1,x,z,false);}
         /** Blocks across the shorter side of the map. */
         public int span(){return 144*zoom;}
     }
@@ -30,13 +30,37 @@ public final class AtlasModel {
         if(next==zoom)return false;
         zoom=next;return true;
     }
-    /** The open map follows the chosen zoom; the minimap always uses the closest view. */
-    public String syncCommand(boolean mapOpen){return mapOpen&&zoom>1&&zoom<=maxZoom()?"atlas sync "+zoom:"atlas sync";}
+    /** True while the open map has been dragged away from the player; {@link #viewX}/{@link #viewZ} is then its centre in blocks. */
+    public boolean panned;
+    public double viewX,viewZ;
+    /** Dragging needs a server that reports the view centre. */
+    public boolean canPan(){return snapshot!=null&&snapshot.pannable();}
+    /** Moves the view by a distance in blocks; the first drag starts from where the map is centred now. */
+    public boolean panBy(double dx,double dz){
+        if(!canPan())return false;
+        if(!panned){viewX=snapshot.centerX();viewZ=snapshot.centerZ();panned=true;}
+        viewX=Math.clamp(viewX+dx,-30_000_000,30_000_000);viewZ=Math.clamp(viewZ+dz,-30_000_000,30_000_000);return true;
+    }
+    /** Back to following the player. */
+    public void recenter(){panned=false;}
+    /** True when the dragged view has left the terrain the last reply covered by a tile or more. */
+    public boolean viewOutdated(){
+        if(!panned||snapshot==null)return false;
+        double tile=16.0*snapshot.zoom();
+        return snapshot.zoom()!=zoom||Math.abs(viewX-snapshot.centerX())>=tile||Math.abs(viewZ-snapshot.centerZ())>=tile;
+    }
+    /** The open map follows the chosen zoom and dragged centre; the minimap always uses the closest view around the player. */
+    public String syncCommand(boolean mapOpen){
+        if(!mapOpen)return "atlas sync";
+        int z=zoom<=maxZoom()?zoom:1;
+        if(panned&&canPan())return "atlas sync "+z+" "+(int)Math.floor(viewX)+" "+(int)Math.floor(viewZ);
+        return z>1?"atlas sync "+z:"atlas sync";
+    }
     private long started;
     private long receivedAt;
     public void request(long now){started=now;state=State.WAITING;notice="Requesting map…";}
     public void tick(long now){if(state==State.WAITING&&now-started>=TIMEOUT_NANOS){state=State.TIMEOUT;notice="No server reply. Refresh to retry.";}}
-    public void reset(){snapshot=null;selected="";notice="";state=State.IDLE;receivedAt=0;zoom=1;}
+    public void reset(){snapshot=null;selected="";notice="";state=State.IDLE;receivedAt=0;zoom=1;panned=false;}
     public String freshness(long now){
         if(state==State.ERROR)return "Error: "+notice;
         if(state==State.TIMEOUT)return "Stale: no server reply";
@@ -75,16 +99,19 @@ public final class AtlasModel {
             if(integer(root,"v",1,1)!=1)throw new IllegalArgumentException("Protocol version mismatch");
             if(root.has("error")){notice=bounded(root,"error",256);state=State.ERROR;return;}
             if(root.has("notice")){notice=bounded(root,"notice",256);return;}
-            snapshot=parse(root,now);receivedAt=now;zoom=Math.min(zoom,snapshot.maxZoom());
+            snapshot=parse(root,now);receivedAt=now;zoom=Math.min(zoom,snapshot.maxZoom());if(!snapshot.pannable())panned=false;
             if(snapshot.anchors().stream().noneMatch(a->a.id().equals(selected)))selected="";
             state=State.READY;if(notice.isEmpty()||notice.startsWith("Requesting"))notice=snapshot.tiles().isEmpty()?"No terrain yet. Explore, then refresh.":"Shared map updated";
         }catch(RuntimeException e){state=State.ERROR;notice="Invalid map reply. Refresh to retry.";}
     }
     static Snapshot parse(JsonObject root,long now){
         String world=bounded(root,"world",128);double x=coordinate(root,"x"),z=coordinate(root,"z");
-        int zoom=root.has("zoom")?integer(root,"zoom",1,16):1,maxZoom=root.has("max_zoom")?integer(root,"max_zoom",1,16):1;
+        // `zoom_limit` carries the real limit; `max_zoom` stays within what older companions accept.
+        int zoom=root.has("zoom")?integer(root,"zoom",1,64):1,maxZoom=root.has("zoom_limit")?integer(root,"zoom_limit",1,64):root.has("max_zoom")?integer(root,"max_zoom",1,64):1;
         if(Integer.bitCount(zoom)!=1||Integer.bitCount(maxZoom)!=1||zoom>maxZoom)throw new IllegalArgumentException("Invalid zoom");
-        int cx=Math.floorDiv((int)Math.floor(x),16*zoom),cz=Math.floorDiv((int)Math.floor(z),16*zoom);
+        // Servers that support dragging report the block the tiles are centred on; older ones centre on the player.
+        boolean pannable=root.has("cx")&&root.has("cz");double centerX=pannable?coordinate(root,"cx"):x,centerZ=pannable?coordinate(root,"cz"):z;
+        int cx=Math.floorDiv((int)Math.floor(centerX),16*zoom),cz=Math.floorDiv((int)Math.floor(centerZ),16*zoom);
         List<Tile> tiles=new ArrayList<>();Set<String> seen=new HashSet<>();
         for(var entry:array(root,"tiles",81)){
             var t=entry.getAsJsonObject();int tx=integer(t,"x",-1875000,1875000),tz=integer(t,"z",-1875000,1875000);
@@ -99,7 +126,7 @@ public final class AtlasModel {
             if(anchors.stream().noneMatch(a->a.id().equals(id)))throw new IllegalArgumentException("Unknown quoted destination");
             quote=new Quote(id,price,now+remaining*1_000_000L);
         }
-        return new Snapshot(world,x,z,integer(root,"balance",0,2304),List.copyOf(tiles),anchors,markers,quote,zoom,maxZoom);
+        return new Snapshot(world,x,z,integer(root,"balance",0,2304),List.copyOf(tiles),anchors,markers,quote,zoom,maxZoom,centerX,centerZ,pannable);
     }
     static List<Point> points(JsonObject root,String field){List<Point> result=new ArrayList<>();Set<String> seen=new HashSet<>();for(var e:array(root,field,40)){var p=e.getAsJsonObject();String id=uuid(p,"id");if(!seen.add(id))throw new IllegalArgumentException("Duplicate marker");result.add(new Point(id,bounded(p,"name",40),coordinate(p,"x"),coordinate(p,"z")));}return List.copyOf(result);}
     static String uuid(JsonObject o,String key){String s=bounded(o,key,36);if(!s.matches("[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}"))throw new IllegalArgumentException("Invalid UUID");return s;}
