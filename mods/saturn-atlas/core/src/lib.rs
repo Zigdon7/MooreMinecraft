@@ -69,6 +69,10 @@ impl Atlas {
                 && a.position.z.floor() as i32 == z
         })
     }
+    /// Markers are personal: a player sees only the ones they placed.
+    pub fn markers_for<'a>(&'a self, player: &'a str) -> impl Iterator<Item = &'a Marker> {
+        self.markers.values().filter(move |m| m.owner == player)
+    }
     pub fn destinations<'a>(&'a self, player: &'a str) -> impl Iterator<Item = &'a Anchor> {
         self.anchors.values().filter(move |a| a.accessible(player))
     }
@@ -210,6 +214,25 @@ mod anchor_tests {
             grants: BTreeSet::new(),
             enabled: true,
         }
+    }
+    #[test]
+    fn markers_are_personal() {
+        let mut atlas = Atlas::default();
+        for (id, owner) in [("m1", "alice"), ("m2", "bob"), ("m3", "alice")] {
+            atlas.markers.insert(
+                id.into(),
+                Marker {
+                    id: id.into(),
+                    owner: owner.into(),
+                    name: id.into(),
+                    position: Position { world: "w".into(), x: 0.0, y: 64.0, z: 0.0 },
+                },
+            );
+        }
+        let ids = |p: &str| atlas.markers_for(p).map(|m| m.id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids("alice"), ["m1", "m3"]);
+        assert_eq!(ids("bob"), ["m2"]);
+        assert!(ids("carol").is_empty());
     }
     #[test]
     fn default_names_skip_names_in_use() {

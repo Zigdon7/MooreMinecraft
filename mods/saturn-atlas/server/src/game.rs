@@ -146,7 +146,7 @@ fn nearest_lodestone(p: &Player) -> Option<BlockPos> {
     }
     best.map(|(_, b)| b)
 }
-/// Registers the lodestone at `b` as a private waypoint owned by `p`, unless it already is one.
+/// Registers the lodestone at `b` as a shared waypoint owned by `p`, unless it already is one.
 /// Returns the waypoint's name when a new one was created.
 fn register_lodestone(shared: &Shared, p: &Player, b: BlockPos) -> Result<Option<String>, String> {
     let world = p.get_world().get_id();
@@ -166,7 +166,7 @@ fn register_lodestone(shared: &Shared, p: &Player, b: BlockPos) -> Result<Option
             name: name.clone(),
             owner: pid(p),
             position: standing_spot(&world, b),
-            public: false,
+            public: true,
             enabled: true,
             grants: BTreeSet::new(),
         },
@@ -334,7 +334,7 @@ fn render(shared: &Shared, p: &Player) -> Result<(), String> {
             }
         }
     };
-    for m in runtime.store.state.atlas.markers.values() {
+    for m in runtime.store.state.atlas.markers_for(&id) {
         if m.position.world == at.world {
             point(m.position.x, m.position.z, 74)
         }
@@ -465,8 +465,7 @@ fn atlas_command(shared: &Shared, p: &Player, args: &str) -> Result<String, Stri
             Ok(r.store
                 .state
                 .atlas
-                .markers
-                .values()
+                .markers_for(&id)
                 .filter(|m| m.position.world == p.get_world().get_id())
                 .take(50)
                 .map(|m| format!("{} — {}", m.id, m.name))
@@ -480,6 +479,9 @@ fn atlas_command(shared: &Shared, p: &Player, args: &str) -> Result<String, Stri
             if r.store.state.atlas.markers.len() >= 1024 {
                 return Err("Marker capacity reached".into());
             };
+            if r.store.state.atlas.markers_for(&id).count() >= 64 {
+                return Err("You have 64 markers; remove one first".into());
+            };
             r.store.state.atlas.markers.insert(
                 key.clone(),
                 Marker {
@@ -490,7 +492,7 @@ fn atlas_command(shared: &Shared, p: &Player, args: &str) -> Result<String, Stri
                 },
             );
             r.store.save()?;
-            Ok(format!("Shared marker created: {key}"))
+            Ok(format!("Personal marker created (only you see it): {key}"))
         }
         "marker" if sub == "remove" => {
             let mut r = lock(shared)?;
@@ -536,14 +538,14 @@ fn stone_command(shared: &Shared, p: &Player, args: &str) -> Result<String, Stri
                     name,
                     owner: id,
                     position: at,
-                    public: false,
+                    public: true,
                     enabled: true,
                     grants: BTreeSet::new(),
                 },
             );
             r.store.save()?;
             Ok(format!(
-                "Lodestone registered (private): {key}. Use /lodestone access {key} public to share it."
+                "Lodestone registered and shared with all players: {key}. Use /lodestone access {key} private to hide it."
             ))
         }
         "rename" => {
@@ -775,7 +777,7 @@ impl EventHandler<BlockPlaceEvent> for Placed {
             }
             match register_lodestone(&shared, &p, b) {
                 Ok(Some(name)) => {
-                    tell(&p, "notice", &format!("Lodestone added to your map as \"{name}\". Right-click it to rename."));
+                    tell(&p, "notice", &format!("Lodestone \"{name}\" added to the map for all players. Right-click it to rename."));
                     let _ = sync_companion(&shared, &p, None);
                 }
                 Ok(None) => {}
@@ -864,7 +866,7 @@ impl EventHandler<PlayerInteractEvent> for Touched {
         match found {
             None => match register_lodestone(&self.shared, p, b) {
                 Ok(Some(name)) => {
-                    tell(p, "notice", &format!("Lodestone added to your map as \"{name}\". Right-click it again to rename."));
+                    tell(p, "notice", &format!("Lodestone \"{name}\" added to the map for all players. Right-click it again to rename."));
                     let _ = sync_companion(&self.shared, p, None);
                     e.cancelled = true;
                 }
@@ -1182,8 +1184,7 @@ fn sync_companion(shared: &Shared, p: &Player, requested: Option<u32>) -> Result
         .store
         .state
         .atlas
-        .markers
-        .values()
+        .markers_for(&id)
         .filter(|m| m.position.world == at.world)
         .take(40)
         .map(|m| serde_json::json!({"id":m.id,"name":m.name,"x":m.position.x,"z":m.position.z}))
