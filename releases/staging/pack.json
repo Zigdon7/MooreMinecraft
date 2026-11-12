@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "packId": "saturn",
-  "version": "teleport-preview-7928938",
+  "version": "client-hotfix-523fe7c",
   "minecraft": "26.3",
   "fabricLoader": "0.20.1",
   "mods": [
@@ -16,10 +16,10 @@
     {
       "id": "saturn_atlas",
       "repo": "Zigdon7/MooreMinecraft",
-      "tag": "teleport-preview-7928938",
+      "tag": "client-hotfix-523fe7c",
       "asset": "saturn-atlas-companion-0.1.3-dev.jar",
-      "sha256": "bc868101bab6295cf2d92314f92dba97cd51a6b888ab4f0e8c9525ac47491bfc",
-      "size": 48479
+      "sha256": "e931219f1214ec1a8dab47dfca98b190519fede8b1a8624c439ba2b5f23a9da0",
+      "size": 49158
     }
   ]
 }
