@@ -9,8 +9,14 @@ use pumpkin_plugin_api::{
     commands::CommandHandler,
     common::BlockPos,
     data_components::DataComponent,
-    events::{ChunkSendEvent, EventHandler, EventPriority, PlayerJoinEvent},
-    events_wit::{ChunkSendEventData, PlayerJoinEventData},
+    events::{
+        BlockBreakEvent, BlockPlaceEvent, ChunkSendEvent, EventHandler, EventPriority,
+        PlayerChatEvent, PlayerInteractEvent, PlayerJoinEvent,
+    },
+    events_wit::{
+        BlockBreakEventData, BlockPlaceEventData, ChunkSendEventData, InteractAction,
+        PlayerChatEventData, PlayerInteractEventData, PlayerJoinEventData,
+    },
     item_stack::ItemStack,
     java_packets::{CMapItemData, ClientboundPacket, MapPatch},
     player::Player,
@@ -51,6 +57,8 @@ pub struct Runtime {
     pub views: BTreeMap<String, u32>,
     /// Zoom each companion last asked for; snapshots sent after other commands reuse it.
     pub zooms: BTreeMap<String, u32>,
+    /// Players asked to type a new lodestone name in chat: player -> (anchor id, expiry ms).
+    pub renames: BTreeMap<String, (String, u64)>,
     pub serial: u64,
     pub dirty: bool,
 }
@@ -93,16 +101,82 @@ fn anchor_block(p: &Player) -> Result<(BlockPos, Position), String> {
         y: t.1.floor() as i32,
         z: t.2.floor() as i32,
     };
-    if p.get_world().get_block_state(b).block_name != "minecraft:lodestone" {
-        return Err("Look at a placed vanilla lodestone".into());
+    if is_lodestone(&p.get_world().get_block_state(b).block_name) {
+        return Ok((b, standing_spot(&p.get_world().get_id(), b)));
     }
-    let a = Position {
-        world: p.get_world().get_id(),
+    // The ray can report a point on the block's face, which floors to the neighbouring block.
+    let near = nearest_lodestone(p).ok_or("Look at or stand next to a placed lodestone")?;
+    Ok((near, standing_spot(&p.get_world().get_id(), near)))
+}
+fn is_lodestone(name: &str) -> bool {
+    name == "minecraft:lodestone" || name == "lodestone"
+}
+/// Where a traveller stands: centred on top of the lodestone block.
+fn standing_spot(world: &str, b: BlockPos) -> Position {
+    Position {
+        world: world.to_owned(),
         x: b.x as f64 + 0.5,
         y: b.y as f64 + 1.0,
         z: b.z as f64 + 0.5,
-    };
-    Ok((b, a))
+    }
+}
+/// Closest lodestone block within 3 blocks of the player.
+fn nearest_lodestone(p: &Player) -> Option<BlockPos> {
+    let (px, py, pz) = p.get_position();
+    let (cx, cy, cz) = (px.floor() as i32, py.floor() as i32, pz.floor() as i32);
+    let world = p.get_world();
+    let mut best: Option<(i32, BlockPos)> = None;
+    for dy in -3..=3 {
+        for dz in -3..=3 {
+            for dx in -3..=3 {
+                let d = dx * dx + dy * dy + dz * dz;
+                if best.as_ref().is_some_and(|(b, _)| *b <= d) {
+                    continue;
+                }
+                let b = BlockPos {
+                    x: cx + dx,
+                    y: cy + dy,
+                    z: cz + dz,
+                };
+                if is_lodestone(&world.get_block_state(b).block_name) {
+                    best = Some((d, b));
+                }
+            }
+        }
+    }
+    best.map(|(_, b)| b)
+}
+/// Registers the lodestone at `b` as a private waypoint owned by `p`, unless it already is one.
+/// Returns the waypoint's name when a new one was created.
+fn register_lodestone(shared: &Shared, p: &Player, b: BlockPos) -> Result<Option<String>, String> {
+    let world = p.get_world().get_id();
+    let mut r = lock(shared)?;
+    if r.store.state.atlas.anchor_at(&world, b.x, b.y, b.z).is_some() {
+        return Ok(None);
+    }
+    if r.store.state.atlas.anchors.len() >= 256 {
+        return Err("Lodestone capacity reached; this one was not added as a waypoint".into());
+    }
+    let key = uuid::to_string(uuid::generate());
+    let name = r.store.state.atlas.next_anchor_name();
+    r.store.state.atlas.anchors.insert(
+        key.clone(),
+        Anchor {
+            id: key,
+            name: name.clone(),
+            owner: pid(p),
+            position: standing_spot(&world, b),
+            public: false,
+            enabled: true,
+            grants: BTreeSet::new(),
+        },
+    );
+    r.store.save()?;
+    Ok(Some(name))
+}
+fn tell(p: &Player, kind: &str, message: &str) {
+    p.send_system_message(TextComponent::text(message), false);
+    send_feedback(p, kind, message);
 }
 fn origin<'a>(atlas: &'a saturn_atlas_core::Atlas, p: &Player) -> Option<&'a Anchor> {
     let at = position(p);
@@ -359,7 +433,7 @@ impl CommandHandler for Help {
         _: Server,
         _: ConsumedArgs,
     ) -> Result<i32, CommandError> {
-        sender.send_message(TextComponent::text(&format!("Staging: /atlas view | center | zoom 1..4 | marker add <name> | marker remove <id> | markers; /lodestone create <name> | list | quote <id> | confirm | access <id> public/private. {} Not production-ready.", if TravelRules::default().free { "Travel is currently free." } else { "Travel currency: amethyst shards." })));
+        sender.send_message(TextComponent::text(&format!("Staging: /atlas view | center | zoom 1..4 | marker add <name> | marker remove <id> | markers; placed lodestones become waypoints; right-click yours to rename it. /lodestone rename <name> | create <name> | list | quote <id> | confirm | access <id> public/private. {} Not production-ready.", if TravelRules::default().free { "Travel is currently free." } else { "Travel currency: amethyst shards." })));
         Ok(1)
     }
 }
@@ -471,6 +545,36 @@ fn stone_command(shared: &Shared, p: &Player, args: &str) -> Result<String, Stri
             Ok(format!(
                 "Lodestone registered (private): {key}. Use /lodestone access {key} public to share it."
             ))
+        }
+        "rename" => {
+            // `/lodestone rename <name>` renames your nearest lodestone; `<id> <name>` names one.
+            let mut r = lock(shared)?;
+            let (first, tail) = rest.split_once(' ').unwrap_or((rest, ""));
+            let (key, name) = if r.store.state.atlas.anchors.contains_key(first) {
+                (first.to_owned(), clean_name(tail)?)
+            } else {
+                let at = position(p);
+                let key = r
+                    .store
+                    .state
+                    .atlas
+                    .anchors
+                    .values()
+                    .filter(|a| a.owner == id)
+                    .filter_map(|a| a.position.distance(&at).map(|d| (d, a)))
+                    .filter(|(d, _)| *d <= 6.0)
+                    .min_by(|a, b| a.0.total_cmp(&b.0))
+                    .map(|(_, a)| a.id.clone())
+                    .ok_or("Stand within 6 blocks of a lodestone you own")?;
+                (key, clean_name(rest)?)
+            };
+            let a = r.store.state.atlas.anchors.get_mut(&key).ok_or("Unknown anchor")?;
+            if a.owner != id {
+                return Err("Only the owner can rename a lodestone".into());
+            }
+            a.name = name.clone();
+            r.store.save()?;
+            Ok(format!("Lodestone renamed to {name}"))
         }
         "list" => {
             let r = lock(shared)?;
@@ -648,9 +752,179 @@ fn stone_command(shared: &Shared, p: &Player, args: &str) -> Result<String, Stri
             Ok("Travel complete".into())
         }
         _ => Err(
-            "Use /lodestone create <name>, list, quote <id>, confirm, access <id> public/private"
+            "Use /lodestone rename <name>, create <name>, list, quote <id>, confirm, access <id> public/private"
                 .into(),
         ),
+    }
+}
+/// A placed lodestone becomes a waypoint for the player who placed it.
+struct Placed {
+    shared: Shared,
+}
+impl EventHandler<BlockPlaceEvent> for Placed {
+    fn handle(&self, _: Server, e: BlockPlaceEventData) -> BlockPlaceEventData {
+        if e.cancelled || !e.can_build || !is_lodestone(&e.block_placed) {
+            return e;
+        }
+        let (id, b, shared) = (e.player.get_id(), e.block_pos, self.shared.clone());
+        // The event fires before the block exists; register once it is really there.
+        pumpkin_plugin_api::scheduler::schedule_delayed_task(2, move |server| {
+            let Some(p) = server.get_player_by_uuid(id) else { return };
+            if !is_lodestone(&p.get_world().get_block_state(b).block_name) {
+                return;
+            }
+            match register_lodestone(&shared, &p, b) {
+                Ok(Some(name)) => {
+                    tell(&p, "notice", &format!("Lodestone added to your map as \"{name}\". Right-click it to rename."));
+                    let _ = sync_companion(&shared, &p, None);
+                }
+                Ok(None) => {}
+                Err(message) => tell(&p, "error", &message),
+            }
+        });
+        e
+    }
+}
+/// A broken lodestone stops being a waypoint.
+struct Broken {
+    shared: Shared,
+}
+impl EventHandler<BlockBreakEvent> for Broken {
+    fn handle(&self, _: Server, e: BlockBreakEventData) -> BlockBreakEventData {
+        if e.cancelled || !is_lodestone(&e.block) {
+            return e;
+        }
+        let (b, shared) = (e.block_pos, self.shared.clone());
+        let breaker = e.player.as_ref().map(|p| p.get_id());
+        pumpkin_plugin_api::scheduler::schedule_delayed_task(2, move |server| {
+            let worlds = server.get_all_worlds();
+            let Ok(mut r) = shared.lock() else { return };
+            // The event carries no world, so check every anchor on a block at these coordinates
+            // and drop the ones whose lodestone is really gone.
+            let gone: Vec<(String, String)> = r
+                .store
+                .state
+                .atlas
+                .anchors
+                .values()
+                .filter(|a| {
+                    a.position.x.floor() as i32 == b.x
+                        && a.position.y.floor() as i32 - 1 == b.y
+                        && a.position.z.floor() as i32 == b.z
+                })
+                .filter(|a| {
+                    worlds
+                        .iter()
+                        .find(|w| w.get_id() == a.position.world)
+                        .is_some_and(|w| !is_lodestone(&w.get_block_state(b).block_name))
+                })
+                .map(|a| (a.id.clone(), a.name.clone()))
+                .collect();
+            if gone.is_empty() {
+                return;
+            }
+            for (key, _) in &gone {
+                r.store.state.atlas.anchors.remove(key);
+                r.renames.retain(|_, (anchor, _)| anchor != key);
+            }
+            if let Err(e) = r.store.save() {
+                tracing::error!("Atlas save after lodestone removal failed: {}", e);
+            }
+            drop(r);
+            if let Some(p) = breaker.and_then(|id| server.get_player_by_uuid(id)) {
+                tell(&p, "notice", &format!("Lodestone waypoint \"{}\" removed.", gone[0].1));
+                let _ = sync_companion(&shared, &p, None);
+            }
+        });
+        e
+    }
+}
+/// Right-clicking a lodestone: the owner is asked for a new name; an unregistered one is claimed.
+struct Touched {
+    shared: Shared,
+}
+impl EventHandler<PlayerInteractEvent> for Touched {
+    fn handle(&self, _: Server, mut e: PlayerInteractEventData) -> PlayerInteractEventData {
+        let Some(b) = e.clicked_pos else { return e };
+        if e.cancelled || !matches!(e.action, InteractAction::RightClickBlock) || !is_lodestone(&e.block) {
+            return e;
+        }
+        let p = &e.player;
+        // Leave vanilla compass binding alone.
+        let inv = p.get_inventory();
+        for hand in [pumpkin_plugin_api::common::Hand::Right, pumpkin_plugin_api::common::Hand::Left] {
+            if inv.get_item_in_hand(hand).is_some_and(|s| s.get_registry_key() == "minecraft:compass") {
+                return e;
+            }
+        }
+        let (id, world) = (pid(p), p.get_world().get_id());
+        let found = lock(&self.shared).ok().and_then(|r| {
+            r.store.state.atlas.anchor_at(&world, b.x, b.y, b.z).map(|a| (a.id.clone(), a.name.clone(), a.owner.clone()))
+        });
+        match found {
+            None => match register_lodestone(&self.shared, p, b) {
+                Ok(Some(name)) => {
+                    tell(p, "notice", &format!("Lodestone added to your map as \"{name}\". Right-click it again to rename."));
+                    let _ = sync_companion(&self.shared, p, None);
+                    e.cancelled = true;
+                }
+                Ok(None) => {}
+                Err(message) => tell(p, "error", &message),
+            },
+            Some((key, name, owner)) if owner == id => {
+                if let Ok(mut r) = lock(&self.shared) {
+                    // Both hands can report the same click; ask once.
+                    let asked = r.renames.get(&id).is_some_and(|(k, until)| *k == key && *until > now() + 29_000);
+                    r.renames.insert(id, (key, now() + 30_000));
+                    drop(r);
+                    if !asked {
+                        tell(p, "notice", &format!("Type a new name for \"{name}\" in chat within 30 seconds, or type cancel."));
+                    }
+                }
+                e.cancelled = true;
+            }
+            Some((_, name, _)) => tell(p, "notice", &format!("\"{name}\" belongs to another player.")),
+        }
+        e
+    }
+}
+/// The chat line after a rename prompt is the new name; it is not broadcast.
+struct Named {
+    shared: Shared,
+}
+impl EventHandler<PlayerChatEvent> for Named {
+    fn handle(&self, _: Server, mut e: PlayerChatEventData) -> PlayerChatEventData {
+        if e.cancelled {
+            return e;
+        }
+        let id = pid(&e.player);
+        let Ok(mut r) = lock(&self.shared) else { return e };
+        let Some((key, until)) = r.renames.remove(&id) else { return e };
+        if until < now() {
+            return e;
+        }
+        e.cancelled = true;
+        let text = e.message.trim().to_owned();
+        if text.eq_ignore_ascii_case("cancel") {
+            drop(r);
+            tell(&e.player, "notice", "Rename cancelled.");
+            return e;
+        }
+        let result = clean_name(&text).and_then(|name| {
+            let a = r.store.state.atlas.anchors.get_mut(&key).ok_or("That lodestone is no longer a waypoint")?;
+            a.name = name.clone();
+            r.store.save()?;
+            Ok(name)
+        });
+        drop(r);
+        match result {
+            Ok(name) => {
+                tell(&e.player, "notice", &format!("Lodestone renamed to \"{name}\"."));
+                let _ = sync_companion(&self.shared, &e.player, None);
+            }
+            Err(message) => tell(&e.player, "error", &format!("{message}. Right-click the lodestone to try again.")),
+        }
+        e
     }
 }
 struct Chunks {
@@ -726,6 +1000,10 @@ pub fn setup(context: &Context, shared: Shared) -> Result<(), String> {
         let cmd = cmd.then(arg);
         context.register_command(cmd, "saturn-atlas:command.use");
     }
+    context.register_event_handler(Placed { shared: shared.clone() }, EventPriority::Normal, true)?;
+    context.register_event_handler(Broken { shared: shared.clone() }, EventPriority::Normal, true)?;
+    context.register_event_handler(Touched { shared: shared.clone() }, EventPriority::Normal, true)?;
+    context.register_event_handler(Named { shared: shared.clone() }, EventPriority::Normal, true)?;
     context.register_event_handler(
         Chunks {
             shared: shared.clone(),

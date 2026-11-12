@@ -97,6 +97,7 @@ impl Plugin for SaturnAtlas {
             queue: Default::default(),
             views: Default::default(),
             zooms: Default::default(),
+            renames: Default::default(),
             serial: 0,
             dirty: false,
         }));

@@ -52,6 +52,23 @@ pub struct Atlas {
     pub explored: BTreeSet<(String, i32, i32)>,
 }
 impl Atlas {
+    /// Name for a lodestone registered without one: "Lodestone 1", "Lodestone 2", ... skipping
+    /// names already in use so two waypoints never look the same in a list.
+    pub fn next_anchor_name(&self) -> String {
+        (1u32..)
+            .map(|n| format!("Lodestone {n}"))
+            .find(|name| !self.anchors.values().any(|a| a.name == *name))
+            .unwrap_or_else(|| "Lodestone".into())
+    }
+    /// The anchor registered on the lodestone block at these block coordinates.
+    pub fn anchor_at(&self, world: &str, x: i32, y: i32, z: i32) -> Option<&Anchor> {
+        self.anchors.values().find(|a| {
+            a.position.world == world
+                && a.position.x.floor() as i32 == x
+                && a.position.y.floor() as i32 - 1 == y
+                && a.position.z.floor() as i32 == z
+        })
+    }
     pub fn destinations<'a>(&'a self, player: &'a str) -> impl Iterator<Item = &'a Anchor> {
         self.anchors.values().filter(move |a| a.accessible(player))
     }
@@ -172,6 +189,45 @@ impl TravelRules {
             return Err("insufficient runes");
         };
         Ok(())
+    }
+}
+#[cfg(test)]
+mod anchor_tests {
+    use super::*;
+    fn anchor(id: &str, name: &str, x: i32, y: i32, z: i32) -> Anchor {
+        Anchor {
+            id: id.into(),
+            name: name.into(),
+            owner: "p".into(),
+            // Stored as the standing spot on top of the block.
+            position: Position {
+                world: "w".into(),
+                x: x as f64 + 0.5,
+                y: y as f64 + 1.0,
+                z: z as f64 + 0.5,
+            },
+            public: false,
+            grants: BTreeSet::new(),
+            enabled: true,
+        }
+    }
+    #[test]
+    fn default_names_skip_names_in_use() {
+        let mut atlas = Atlas::default();
+        assert_eq!(atlas.next_anchor_name(), "Lodestone 1");
+        atlas.anchors.insert("a".into(), anchor("a", "Lodestone 1", 0, 64, 0));
+        atlas.anchors.insert("b".into(), anchor("b", "Home", 5, 64, 5));
+        atlas.anchors.insert("c".into(), anchor("c", "Lodestone 3", 9, 64, 9));
+        assert_eq!(atlas.next_anchor_name(), "Lodestone 2");
+    }
+    #[test]
+    fn anchor_is_found_by_its_block_including_negative_coordinates() {
+        let mut atlas = Atlas::default();
+        atlas.anchors.insert("a".into(), anchor("a", "A", -3, 70, -17));
+        assert_eq!(atlas.anchor_at("w", -3, 70, -17).map(|a| a.id.as_str()), Some("a"));
+        assert!(atlas.anchor_at("w", -3, 71, -17).is_none(), "the block above is not it");
+        assert!(atlas.anchor_at("w", -2, 70, -17).is_none());
+        assert!(atlas.anchor_at("other", -3, 70, -17).is_none());
     }
 }
 #[cfg(test)]
