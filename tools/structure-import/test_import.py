@@ -1,9 +1,21 @@
 import unittest
+import tempfile
 from pathlib import Path
 from import_structure import decode,load,state
 from make_fixture import build
 
 class ImportTests(unittest.TestCase):
+    def test_village_walkable_doorways(self):
+        from make_village import build as village
+        with tempfile.TemporaryDirectory() as folder:
+            size,blocks=decode(load(village(Path(folder)/'village.schem')))
+        self.assertEqual(size,[24,10,24])
+        cells=dict(blocks)
+        self.assertEqual(sum(s=='minecraft:crafting_table' for s in cells.values()),3)
+        for x,z in [(4,7),(18,7),(7,18)]:
+            self.assertIn((x,0,z),cells)
+            for y in (1,2,3): self.assertNotIn((x,y,z),cells)
+        self.assertTrue(all('[' not in s for s in cells.values()))
     def test_fixture(self):
         build(); size,blocks=decode(load(Path(__file__).with_name('gatehouse.schem')))
         self.assertEqual(size,[13,9,7]); self.assertGreater(len(blocks),300)

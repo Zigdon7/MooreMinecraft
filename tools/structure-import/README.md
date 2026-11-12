@@ -23,6 +23,22 @@ of production performance or general vanilla parity.
 
 ## Importer
 
+### Small village example (prepared, not yet placed)
+
+`python3 make_village.py` generates the original `village.schem`: three cottages,
+open doorways, paths/plaza and a decorative covered well, 24×10×24 / 1,259 blocks.
+It uses only base block names, with no NPCs or block-entity inventories. The well
+uses blue glass rather than flowing water. A test checks decode compatibility and
+walkable door openings. No live village placement has been claimed.
+
+Requested destination is near the shared testing spawn at X=474, Z=219. As checked
+on 2026-11-12, staging still runs the original binary and both spawn and a nearby
+candidate plot are unloaded with zero players. **An air predicate on an unloaded
+chunk is not an empty-site survey.** Wait for a player to load the area, or obtain
+approval for the already-tested staging-only binary switch, then survey the site,
+back up, import without replacing blocks and verify the result. Do not put this
+in production or force a binary switch to satisfy the example request.
+
 Original `gatehouse.schem`: 13×9×7, 420 non-air full-cube blocks. The importer
 acknowledged 420 placements, saved the world, and all **420/420 block predicates
 passed after a clean restart**, with a deliberately incorrect negative control.
@@ -46,7 +62,7 @@ python3 import_structure.py gatehouse.schem --origin 96 200 96
 ```
 
 Python uses only its standard library. The dry run writes ignored `last-plan.json`.
-Tests regenerate the deterministic original fixture. Six parser/validation checks
+Tests regenerate the deterministic original fixture. Seven parser/validation checks
 pass; those tests alone are not live placement or graphical-rendering proof.
 
 ## Operator-only live commands
