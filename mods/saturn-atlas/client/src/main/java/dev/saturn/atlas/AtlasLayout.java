@@ -2,6 +2,9 @@ package dev.saturn.atlas;
 /** All coordinates in scaled GUI units. */
 public record AtlasLayout(int width,int height,boolean compact,Rect map,Rect sidebar,Rect refresh,Rect held,Rect quote,Rect confirm,Rect close) {
  public record Rect(int x,int y,int w,int h){public int right(){return x+w;}public int bottom(){return y+h;}public boolean overlaps(Rect b){return x<b.right()&&right()>b.x&&y<b.bottom()&&bottom()>b.y;}}
+ /** Zoom controls sit in the footer between Held Atlas and Close; absent in the compact layout. */
+ public Rect zoomOut(){return compact?new Rect(0,0,0,0):new Rect(210,height-28,20,20);}
+ public Rect zoomIn(){return compact?new Rect(0,0,0,0):new Rect(234,height-28,20,20);}
  public static boolean utilitySupported(int width,int height){return width>=240&&height>=150;}
  public static Rect[] utilityControls(int width,int height,boolean settings){
   if(!utilitySupported(width,height)){int x=Math.min(12,Math.max(0,width/2));return new Rect[]{new Rect(x,Math.max(0,height-28),Math.max(0,width-2*x),Math.min(20,Math.max(0,height)))};}

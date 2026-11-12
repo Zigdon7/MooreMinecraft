@@ -13,6 +13,39 @@ pub const BUDGET: usize = 8;
 /// Backlog capacity; one player at view distance 16 is sent 1089 chunks on join.
 pub const BACKLOG: usize = 4096;
 
+/// Zoom levels a companion may request: one snapshot tile spans `zoom` x `zoom` chunks.
+pub const ZOOMS: [u32; 5] = [1, 2, 4, 8, 16];
+pub const MAX_ZOOM: u32 = 16;
+/// Unsupported requests fall back to the closest view.
+pub fn valid_zoom(zoom: u32) -> u32 {
+    if ZOOMS.contains(&zoom) { zoom } else { 1 }
+}
+/// The 4 x 4 pixels of snapshot tile (`tx`, `tz`) at `zoom`, each taken from the mapped chunk
+/// pixel under its centre. Unmapped terrain is 0; a tile with no mapped pixel is `None`.
+/// At zoom 1 this is the chunk's own tile.
+pub fn zoom_tile<'a>(
+    zoom: u32,
+    tx: i32,
+    tz: i32,
+    chunk: impl Fn(i32, i32) -> Option<&'a [u8]>,
+) -> Option<Vec<u8>> {
+    let zoom = zoom as i32;
+    let mut pixels = Vec::with_capacity(16);
+    for j in 0..4 {
+        for i in 0..4 {
+            let x = tx * 16 * zoom + i * 4 * zoom + 2 * zoom;
+            let z = tz * 16 * zoom + j * 4 * zoom + 2 * zoom;
+            let index = (z.rem_euclid(16) / 4 * 4 + x.rem_euclid(16) / 4) as usize;
+            pixels.push(
+                chunk(x.div_euclid(16), z.div_euclid(16))
+                    .and_then(|p| p.get(index).copied())
+                    .unwrap_or(0),
+            );
+        }
+    }
+    pixels.iter().any(|p| *p != 0).then_some(pixels)
+}
+
 /// Bounded first-in first-out backlog without duplicates. When full, the oldest entry is
 /// dropped: a newly sent chunk is more likely to still be loaded and near a player.
 pub struct ExploreQueue {
@@ -110,6 +143,40 @@ mod tests {
     }
     fn visible(tiles: &BTreeSet<ChunkKey>, cx: i32) -> usize {
         missing_near(&[key(cx, 0)], VIEW_RADIUS, |k| tiles.contains(k)).len()
+    }
+
+    #[test]
+    fn zoom_one_is_the_chunk_tile_and_unknown_requests_fall_back() {
+        let tile: Vec<u8> = (1..=16).collect();
+        let got = zoom_tile(1, -3, 7, |x, z| (x == -3 && z == 7).then_some(&tile[..]));
+        assert_eq!(got, Some(tile.clone()));
+        assert_eq!(zoom_tile(1, 0, 0, |_, _| None), None);
+        assert_eq!([valid_zoom(0), valid_zoom(3), valid_zoom(4), valid_zoom(32)], [1, 1, 4, 1]);
+    }
+
+    #[test]
+    fn zoomed_tile_samples_the_chunk_under_each_pixel_centre() {
+        // Chunk (cx, cz) is filled with one colour identifying it; chunk (-1, -1) is unmapped.
+        let colour = |x: i32, z: i32| ((x + 8) * 16 + (z + 8) + 1) as u8;
+        let tiles: std::collections::BTreeMap<(i32, i32), Vec<u8>> = (-8..8)
+            .flat_map(|x| (-8..8).map(move |z| (x, z)))
+            .filter(|k| *k != (-1, -1))
+            .map(|(x, z)| ((x, z), vec![colour(x, z); 16]))
+            .collect();
+        let get = |x, z| tiles.get(&(x, z)).map(|v| &v[..]);
+        // Zoom 4: tile (0, 0) spans chunks 0..4, one pixel per chunk.
+        let t = zoom_tile(4, 0, 0, get).unwrap();
+        assert_eq!(t[0], colour(0, 0));
+        assert_eq!(t[3], colour(3, 0));
+        assert_eq!(t[12], colour(0, 3));
+        // Negative side: tile (-1, -1) spans chunks -4..0; its last pixel is the unmapped chunk.
+        let t = zoom_tile(4, -1, -1, get).unwrap();
+        assert_eq!(t[0], colour(-4, -4));
+        assert_eq!(t[15], 0);
+        // Zoom 2: two pixels per chunk along each axis.
+        let t = zoom_tile(2, 1, -1, get).unwrap();
+        assert_eq!([t[0], t[1], t[2], t[3]], [colour(2, -2), colour(2, -2), colour(3, -2), colour(3, -2)]);
+        assert_eq!(zoom_tile(16, 5, 5, get), None, "outside mapped terrain");
     }
 
     #[test]

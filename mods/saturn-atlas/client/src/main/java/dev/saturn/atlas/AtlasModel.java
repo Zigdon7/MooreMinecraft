@@ -10,15 +10,33 @@ public final class AtlasModel {
     public record Tile(int x,int z,int[] pixels) {}
     public record Point(String id,String name,double x,double z) {}
     public record Quote(String destination,int price,long expiresNanos) {}
-    public record Snapshot(String world,double x,double z,int balance,List<Tile> tiles,List<Point> anchors,List<Point> markers,Quote quote) {}
+    /** Tile coordinates are in units of {@code zoom} chunks; {@code maxZoom} is 1 for servers without zoom. */
+    public record Snapshot(String world,double x,double z,int balance,List<Tile> tiles,List<Point> anchors,List<Point> markers,Quote quote,int zoom,int maxZoom) {
+        public Snapshot(String world,double x,double z,int balance,List<Tile> tiles,List<Point> anchors,List<Point> markers,Quote quote){this(world,x,z,balance,tiles,anchors,markers,quote,1,1);}
+        /** Blocks across the shorter side of the map. */
+        public int span(){return 144*zoom;}
+    }
     public Snapshot snapshot;
     public String selected="",notice="";
     public State state=State.IDLE;
+    /** Zoom the open map asks for: 1 is closest, each step doubles the area. */
+    public int zoom=1;
+    public int maxZoom(){return snapshot==null?1:snapshot.maxZoom();}
+    public boolean canZoomOut(){return zoom<maxZoom();}
+    public boolean canZoomIn(){return zoom>1;}
+    /** Steps the zoom (positive is out); false when already at the limit. */
+    public boolean zoomBy(int direction){
+        int next=direction>0?Math.min(maxZoom(),zoom*2):Math.max(1,zoom/2);
+        if(next==zoom)return false;
+        zoom=next;return true;
+    }
+    /** The open map follows the chosen zoom; the minimap always uses the closest view. */
+    public String syncCommand(boolean mapOpen){return mapOpen&&zoom>1&&zoom<=maxZoom()?"atlas sync "+zoom:"atlas sync";}
     private long started;
     private long receivedAt;
     public void request(long now){started=now;state=State.WAITING;notice="Requesting map…";}
     public void tick(long now){if(state==State.WAITING&&now-started>=TIMEOUT_NANOS){state=State.TIMEOUT;notice="No server reply. Refresh to retry.";}}
-    public void reset(){snapshot=null;selected="";notice="";state=State.IDLE;receivedAt=0;}
+    public void reset(){snapshot=null;selected="";notice="";state=State.IDLE;receivedAt=0;zoom=1;}
     public String freshness(long now){
         if(state==State.ERROR)return "Error: "+notice;
         if(state==State.TIMEOUT)return "Stale: no server reply";
@@ -57,14 +75,16 @@ public final class AtlasModel {
             if(integer(root,"v",1,1)!=1)throw new IllegalArgumentException("Protocol version mismatch");
             if(root.has("error")){notice=bounded(root,"error",256);state=State.ERROR;return;}
             if(root.has("notice")){notice=bounded(root,"notice",256);return;}
-            snapshot=parse(root,now);receivedAt=now;
+            snapshot=parse(root,now);receivedAt=now;zoom=Math.min(zoom,snapshot.maxZoom());
             if(snapshot.anchors().stream().noneMatch(a->a.id().equals(selected)))selected="";
             state=State.READY;if(notice.isEmpty()||notice.startsWith("Requesting"))notice=snapshot.tiles().isEmpty()?"No terrain yet. Explore, then refresh.":"Shared map updated";
         }catch(RuntimeException e){state=State.ERROR;notice="Invalid map reply. Refresh to retry.";}
     }
     static Snapshot parse(JsonObject root,long now){
         String world=bounded(root,"world",128);double x=coordinate(root,"x"),z=coordinate(root,"z");
-        int cx=Math.floorDiv((int)Math.floor(x),16),cz=Math.floorDiv((int)Math.floor(z),16);
+        int zoom=root.has("zoom")?integer(root,"zoom",1,16):1,maxZoom=root.has("max_zoom")?integer(root,"max_zoom",1,16):1;
+        if(Integer.bitCount(zoom)!=1||Integer.bitCount(maxZoom)!=1||zoom>maxZoom)throw new IllegalArgumentException("Invalid zoom");
+        int cx=Math.floorDiv((int)Math.floor(x),16*zoom),cz=Math.floorDiv((int)Math.floor(z),16*zoom);
         List<Tile> tiles=new ArrayList<>();Set<String> seen=new HashSet<>();
         for(var entry:array(root,"tiles",81)){
             var t=entry.getAsJsonObject();int tx=integer(t,"x",-1875000,1875000),tz=integer(t,"z",-1875000,1875000);
@@ -79,7 +99,7 @@ public final class AtlasModel {
             if(anchors.stream().noneMatch(a->a.id().equals(id)))throw new IllegalArgumentException("Unknown quoted destination");
             quote=new Quote(id,price,now+remaining*1_000_000L);
         }
-        return new Snapshot(world,x,z,integer(root,"balance",0,2304),List.copyOf(tiles),anchors,markers,quote);
+        return new Snapshot(world,x,z,integer(root,"balance",0,2304),List.copyOf(tiles),anchors,markers,quote,zoom,maxZoom);
     }
     static List<Point> points(JsonObject root,String field){List<Point> result=new ArrayList<>();Set<String> seen=new HashSet<>();for(var e:array(root,field,40)){var p=e.getAsJsonObject();String id=uuid(p,"id");if(!seen.add(id))throw new IllegalArgumentException("Duplicate marker");result.add(new Point(id,bounded(p,"name",40),coordinate(p,"x"),coordinate(p,"z")));}return List.copyOf(result);}
     static String uuid(JsonObject o,String key){String s=bounded(o,key,36);if(!s.matches("[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}"))throw new IllegalArgumentException("Invalid UUID");return s;}

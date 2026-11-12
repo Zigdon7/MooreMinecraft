@@ -49,6 +49,8 @@ pub struct Runtime {
     pub quotes: BTreeMap<String, Quote>,
     pub queue: ExploreQueue,
     pub views: BTreeMap<String, u32>,
+    /// Zoom each companion last asked for; snapshots sent after other commands reuse it.
+    pub zooms: BTreeMap<String, u32>,
     pub serial: u64,
     pub dirty: bool,
 }
@@ -312,6 +314,7 @@ impl CommandHandler for Cmd {
             )));
             return Ok(1);
         }
+        let is_sync = self.kind && words.split(' ').next() == Some("sync");
         let result = if let Some(p) = sender.as_player() {
             if self.kind {
                 atlas_command(&self.shared, &p, &words)
@@ -322,11 +325,11 @@ impl CommandHandler for Cmd {
             Err("Use this gameplay command in-game".into())
         };
         if let Some(p) = sender.as_player() {
-            if words.trim() != "sync" {
+            if !is_sync {
                 match &result {
                     Ok(message) => {
                         send_feedback(&p, "notice", message);
-                        let _ = sync_companion(&self.shared, &p);
+                        let _ = sync_companion(&self.shared, &p, None);
                     }
                     Err(message) => send_feedback(&p, "error", message),
                 }
@@ -336,7 +339,7 @@ impl CommandHandler for Cmd {
         }
         match result {
             Ok(s) => {
-                if words.trim() != "sync" {
+                if !is_sync {
                     sender.send_message(TextComponent::text(&s));
                 }
                 Ok(1)
@@ -367,7 +370,8 @@ fn atlas_command(shared: &Shared, p: &Player, args: &str) -> Result<String, Stri
     let sub = words.next().unwrap_or("");
     let rest = words.next().unwrap_or("");
     match action {
-        "sync" => sync_companion(shared, p),
+        // A bare sync is the closest view; `sync <zoom>` asks for a wider one.
+        "sync" => sync_companion(shared, p, Some(sub.parse().unwrap_or(1))),
         "view" | "center" => {
             ensure_map(p)?;
             render(shared, p)?;
@@ -690,7 +694,7 @@ impl EventHandler<PlayerJoinEvent> for JoinSnapshot {
         pumpkin_plugin_api::scheduler::schedule_delayed_task(20, move |server| {
             if let Some(p) = server.get_player_by_uuid(id) {
                 if p.as_java().is_some() {
-                    let _ = sync_companion(&shared, &p);
+                    let _ = sync_companion(&shared, &p, Some(1));
                 }
             }
         });
@@ -854,20 +858,39 @@ pub fn setup(context: &Context, shared: Shared) -> Result<(), String> {
     Ok(())
 }
 
-fn sync_companion(shared: &Shared, p: &Player) -> Result<String, String> {
+fn sync_companion(shared: &Shared, p: &Player, requested: Option<u32>) -> Result<String, String> {
     let java = p.as_java().ok_or("Companion protocol is Java-only")?;
     let at = position(p);
     let id = pid(p);
-    let r = lock(shared)?;
-    let cx = (at.x.floor() as i32).div_euclid(16);
-    let cz = (at.z.floor() as i32).div_euclid(16);
-    let tiles: Vec<_> = r
-        .store
-        .state
-        .tiles
-        .values()
-        .filter(|t| t.world == at.world && (t.x - cx).abs() <= 4 && (t.z - cz).abs() <= 4)
-        .collect();
+    let mut r = lock(shared)?;
+    let zoom = match requested {
+        Some(z) => {
+            let z = explore::valid_zoom(z);
+            r.zooms.insert(id.clone(), z);
+            z
+        }
+        None => *r.zooms.get(&id).unwrap_or(&1),
+    };
+    let r = r;
+    // Tiles are in units of `zoom` chunks, centred on the tile the player stands in.
+    let span = 16 * zoom as i32;
+    let cx = (at.x.floor() as i32).div_euclid(span);
+    let cz = (at.z.floor() as i32).div_euclid(span);
+    let mut tiles = vec![];
+    for tz in cz - explore::VIEW_RADIUS..=cz + explore::VIEW_RADIUS {
+        for tx in cx - explore::VIEW_RADIUS..=cx + explore::VIEW_RADIUS {
+            let pixels = explore::zoom_tile(zoom, tx, tz, |x, z| {
+                r.store
+                    .state
+                    .tiles
+                    .get(&format!("{}:{x}:{z}", at.world))
+                    .map(|t| &t.pixels[..])
+            });
+            if let Some(pixels) = pixels {
+                tiles.push(serde_json::json!({"world":at.world,"x":tx,"z":tz,"pixels":pixels}));
+            }
+        }
+    }
     let anchors: Vec<_> = r
         .store
         .state
@@ -887,7 +910,7 @@ fn sync_companion(shared: &Shared, p: &Player) -> Result<String, String> {
         .take(40)
         .map(|m| serde_json::json!({"id":m.id,"name":m.name,"x":m.position.x,"z":m.position.z}))
         .collect();
-    let text=serde_json::to_string(&serde_json::json!({"v":1,"world":at.world,"x":at.x,"z":at.z,"tiles":tiles,"anchors":anchors,"markers":markers,"balance":balance(p),"quote":r.quotes.get(&id).filter(|q|q.expires_ms>now()).map(|q|serde_json::json!({"destination":q.destination,"price":q.price,"remaining_ms":q.expires_ms.saturating_sub(now()).min(15000)}))})).map_err(|e|e.to_string())?;
+    let text=serde_json::to_string(&serde_json::json!({"v":1,"world":at.world,"x":at.x,"z":at.z,"zoom":zoom,"max_zoom":explore::MAX_ZOOM,"tiles":tiles,"anchors":anchors,"markers":markers,"balance":balance(p),"quote":r.quotes.get(&id).filter(|q|q.expires_ms>now()).map(|q|serde_json::json!({"destination":q.destination,"price":q.price,"remaining_ms":q.expires_ms.saturating_sub(now()).min(15000)}))})).map_err(|e|e.to_string())?;
     if text.len() > 32000 {
         return Err("Map snapshot exceeds protocol size limit".into());
     }
