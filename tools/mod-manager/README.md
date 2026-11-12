@@ -36,5 +36,16 @@ installation mode. Fixtures do not fetch or modify game files. Actual Narrator,
 contrast themes and desktop DPI still require interactive acceptance; fixture
 font enlargement is not desktop-DPI proof. See [review evidence](docs/DESIGN-REVIEW.md).
 
-## Native Windows smoke-test screenshot
-![Native Windows updater window](docs/windows-smoke.png)
+## 0.1.5 layout
+
+One column without boxed cards or step numbers: game folder, latest release, then
+a footer that keeps the install action, recovery and status visible. Window size and
+spacing scale with the system DPI (the 0.1.4 window was a fixed 920 x 820 device pixels
+and cramped at 150%). Control names, mnemonics, the keyboard flow and the updater
+engine are unchanged.
+
+Screenshots below are local captures of the offline `--ui-preview` fixtures on Windows 11
+at 150% scaling in dark mode. They are not CI evidence and not proof of a real install.
+
+![Manager with a checked release](docs/manager-0.1.5-checked.png)
+![Manager before the first check](docs/manager-0.1.5-initial.png)
