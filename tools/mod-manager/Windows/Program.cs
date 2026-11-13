@@ -382,7 +382,7 @@ sealed class ManagerForm : Form
             if (File.Exists(file)) record = Rules.Read<Installed>(file);
         }
         catch (Exception e) { record = null; recordError = true; Log("Installation record could not be read: " + e.Message); }
-        try { if (pack is not null && Directory.Exists(path)) states = Compare.Mods(path, pack, record); }
+        try { if (pack is not null && Path.IsPathFullyQualified(path)) states = Compare.Mods(path, pack, record); }
         catch (Exception e) { states = []; Log("Could not compare the game folder: " + e.Message); }
     }
 

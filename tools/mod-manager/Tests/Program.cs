@@ -73,7 +73,8 @@ await Test("launcher setup preserves unrelated profiles/accounts, isolates mods 
  Assert(System.Text.Json.Nodes.JsonNode.DeepEquals(before["profiles"]!["vanilla"],after["profiles"]!["vanilla"]));
  Assert(after["profiles"]!.AsObject().Count==2&&LauncherSetup.Ready(root,game,pack));
  Assert(after["profiles"]![LauncherSetup.ProfileKey]!["gameDir"]!.GetValue<string>()==game);
- Assert(Directory.GetFiles(root,"*.higdon-backup-*").Length==2);await Done();
+ Assert(Directory.GetFiles(root,"*.higdon-backup-*").Length==2);
+ string v=Directory.GetFiles(Path.Combine(root,"versions"),"*.json",SearchOption.AllDirectories).Single();File.WriteAllText(v,"{}");Assert(!LauncherSetup.Ready(root,game,pack),"damaged version metadata reported ready");await Done();
 });
 await Test("launcher handles Microsoft Store profile file and Loader upgrades independently of mods",async()=>{
  string root=Root(),game=Path.Combine(root,"isolated");var p=Pack("0.2.0",Spec("saturn_atlas","atlas.jar",Jar("saturn_atlas","one")));

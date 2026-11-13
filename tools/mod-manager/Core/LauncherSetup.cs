@@ -33,7 +33,10 @@ public sealed class LauncherSetup(HttpClient client)
         {
             Validate(pack);
             string id = VersionId(pack);
-            if (!File.Exists(Path.Combine(root, "versions", id, id + ".json"))) return false;
+            string versionPath = Path.Combine(root, "versions", id, id + ".json");
+            if (!File.Exists(versionPath)) return false;
+            var version = JsonNode.Parse(File.ReadAllText(versionPath));
+            if (version?["id"]?.GetValue<string>() != id || version["inheritsFrom"]?.GetValue<string>() != pack.Minecraft || version["mainClass"]?.GetValue<string>() != "net.fabricmc.loader.impl.launch.knot.KnotClient") return false;
             return ProfileFiles(root).All(f => File.Exists(f) && JsonNode.Parse(File.ReadAllText(f))?["profiles"]?[Key(staging)] is JsonObject p
                 && p["name"]?.GetValue<string>() == Name(staging) && p["lastVersionId"]?.GetValue<string>() == id
                 && string.Equals(p["gameDir"]?.GetValue<string>(), Path.GetFullPath(game), StringComparison.OrdinalIgnoreCase));
