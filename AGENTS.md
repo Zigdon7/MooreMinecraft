@@ -15,3 +15,9 @@
 - **Protected Pumpkin fix (owner, 2026-11-13):** every server-engine update must retain the eyeblossom Trail disconnect mitigation, or a verified upstream replacement. Follow `server-patches/pumpkin/EYEBLOSSOM-DISCONNECT.md` and run `check-eyeblossom-fix.py` on candidate source before building/promoting. Never blindly replace with a stock binary or drop this when promoting chunk-preload. Source patch alone is not runtime/deployment proof.
 
 - **Atlas ABI gate:** SDK crate0.2.1+26.3-26.51 actually imports `pumpkin:plugin@0.1.0`. Inspect WIT/component package versions, never infer ABI from crate semver. Its preload host backport targets v0_1 and builds with default features; do not enable experimental plugin-v0_2 for this legacy guest.
+
+## Mandatory staging-first rollout (owner, 2026-11-13)
+- Deploy every server/plugin/client-pack/manager update to staging first. For this server, shared player-facing staging is port 25566; a disposable localhost probe or green CI alone does not satisfy this gate.
+- Update the staging download manifests to the matching candidate, verify its actual running binary/plugin hashes and startup/health, and complete the relevant staging checks before promoting those same tested artifacts to production.
+- Production approval does not implicitly waive staging-first. Keep worlds/player data and channel identities separate; promote code/artifacts, never copy staging world data over production. Preserve protected fixes, backups, capability approvals and rollback pairs.
+- Record the staging version/hashes and test results with each production promotion. Do not claim staging is current without checking its running process, installed plugins and download feed.
