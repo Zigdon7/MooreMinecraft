@@ -14,3 +14,7 @@ artifacts/
 **/logs/
 **/backups/
 *.pdb
+
+# This SDK source directory is not a Minecraft save.
+!/vendor/pumpkin-plugin-api/src/events/world/
+!/vendor/pumpkin-plugin-api/src/events/world/**
