@@ -25,7 +25,7 @@ index 84892ea..e783c6f 100644
          "pumpkin:plugin/datapack@0.2.0.[method]datapack-manager.disable-pack": async | store | trappable,
          "pumpkin:plugin/datapack@0.2.0.[method]datapack-manager.enable-pack": async | store | trappable,
 diff --git a/crates/pumpkin-wasm-host-v0_2/src/world.rs b/crates/pumpkin-wasm-host-v0_2/src/world.rs
-index b2e0c90..053255e 100644
+index b2e0c90..4e670da 100644
 --- a/crates/pumpkin-wasm-host-v0_2/src/world.rs
 +++ b/crates/pumpkin-wasm-host-v0_2/src/world.rs
 @@ -665,6 +665,29 @@ impl pumpkin::plugin::world::HostWorld for PluginHostState {
@@ -58,93 +58,3 @@ index b2e0c90..053255e 100644
      fn get_block_state_id(
          &mut self,
          world: Resource<World>,
-@@ -762,7 +785,7 @@ impl pumpkin::plugin::world::HostWorld for PluginHostState {
-         &mut self,
-         world: Resource<World>,
-     ) -> wasmtime::Result<Resource<pumpkin::plugin::scoreboard::Scoreboard>> {
--        let world_provider = self.get(&world)?.clone();
-+        let world_provider = accessor.with(|mut host| world_from_state(host.get(), &world))?;
-         self.add(pumpkin_wasm_host_common::state::ScoreboardProvider::World(
-             world_provider,
-         ))
-@@ -908,7 +931,7 @@ impl pumpkin::plugin::world::HostWorld for PluginHostState {
-         &mut self,
-         world: Resource<World>,
-     ) -> wasmtime::Result<Vec<Resource<pumpkin::plugin::entity::Entity>>> {
--        let world_provider = self.get(&world)?.clone();
-+        let world_provider = accessor.with(|mut host| world_from_state(host.get(), &world))?;
-         let mut entities = Vec::new();
- 
-         // Add players as entities
-@@ -929,7 +952,7 @@ impl pumpkin::plugin::world::HostWorld for PluginHostState {
-         world: Resource<World>,
-         id: i32,
-     ) -> wasmtime::Result<Option<Resource<pumpkin::plugin::entity::Entity>>> {
--        let world_provider = self.get(&world)?.clone();
-+        let world_provider = accessor.with(|mut host| world_from_state(host.get(), &world))?;
-         if let Some(entity) = world_provider.get_entity_by_id(id) {
-             Ok(Some(self.add(entity)?))
-         } else {
-@@ -942,7 +965,7 @@ impl pumpkin::plugin::world::HostWorld for PluginHostState {
-         world: Resource<World>,
-         id: crate::pumpkin::plugin::uuid::Uuid,
-     ) -> wasmtime::Result<Option<Resource<pumpkin::plugin::entity::Entity>>> {
--        let world_provider = self.get(&world)?.clone();
-+        let world_provider = accessor.with(|mut host| world_from_state(host.get(), &world))?;
-         let uuid = <crate::pumpkin::plugin::uuid::Uuid as crate::uuid::UuidExt>::from_wit(&id);
-         if let Some(player) = world_provider.get_player_by_uuid(uuid) {
-             return Ok(Some(
-@@ -961,7 +984,7 @@ impl pumpkin::plugin::world::HostWorld for PluginHostState {
-         min: WitPosition,
-         max: WitPosition,
-     ) -> wasmtime::Result<Vec<Resource<pumpkin::plugin::entity::Entity>>> {
--        let world_provider = self.get(&world)?.clone();
-+        let world_provider = accessor.with(|mut host| world_from_state(host.get(), &world))?;
-         let min_vec = super::events::from_wasm_position(min);
-         let max_vec = super::events::from_wasm_position(max);
-         let aabb = pumpkin_util::math::boundingbox::BoundingBox::new(
-@@ -990,7 +1013,7 @@ impl pumpkin::plugin::world::HostWorld for PluginHostState {
-         start: WitPosition,
-         end: WitPosition,
-     ) -> wasmtime::Result<Option<WitPosition>> {
--        let world_provider = self.get(&world)?.clone();
-+        let world_provider = accessor.with(|mut host| world_from_state(host.get(), &world))?;
-         let start_pos = super::events::from_wasm_position(start);
-         let end_pos = super::events::from_wasm_position(end);
-         let res = world_provider.raycast(start_pos, end_pos, |pos, w| {
-@@ -1012,7 +1035,7 @@ impl pumpkin::plugin::world::HostWorld for PluginHostState {
-         end: WitPosition,
-         include_fluids: bool,
-     ) -> wasmtime::Result<Option<WitRayTraceBlockResult>> {
--        let world_provider = self.get(&world)?.clone();
-+        let world_provider = accessor.with(|mut host| world_from_state(host.get(), &world))?;
-         let start_pos = super::events::from_wasm_position(start);
-         let end_pos = super::events::from_wasm_position(end);
-         let res = world_provider.ray_trace_block(start_pos, end_pos, include_fluids);
-@@ -1033,7 +1056,7 @@ impl pumpkin::plugin::world::HostWorld for PluginHostState {
-         start: WitPosition,
-         end: WitPosition,
-     ) -> wasmtime::Result<Option<WitRayTraceEntityResult>> {
--        let world_provider = self.get(&world)?.clone();
-+        let world_provider = accessor.with(|mut host| world_from_state(host.get(), &world))?;
-         let start_pos = super::events::from_wasm_position(start);
-         let end_pos = super::events::from_wasm_position(end);
-         if let Some((entity, hit_pos, distance)) =
-@@ -1058,7 +1081,7 @@ impl pumpkin::plugin::world::HostWorld for PluginHostState {
-         start: WitPosition,
-         end: WitPosition,
-     ) -> wasmtime::Result<Vec<WitRayTraceEntityResult>> {
--        let world_provider = self.get(&world)?.clone();
-+        let world_provider = accessor.with(|mut host| world_from_state(host.get(), &world))?;
-         let start_pos = super::events::from_wasm_position(start);
-         let end_pos = super::events::from_wasm_position(end);
-         let hits = world_provider.ray_trace_entities(start_pos, end_pos);
-@@ -1081,7 +1104,7 @@ impl pumpkin::plugin::world::HostWorld for PluginHostState {
-         world: Resource<World>,
-         pos: WitBlockPos,
-     ) -> wasmtime::Result<Option<BlockEntityType>> {
--        let world_provider = self.get(&world)?.clone();
-+        let world_provider = accessor.with(|mut host| world_from_state(host.get(), &world))?;
-         let internal_pos = BlockPos::new(pos.x, pos.y, pos.z);
-         let block_entity = world_provider.get_block_entity(&internal_pos);
- 
