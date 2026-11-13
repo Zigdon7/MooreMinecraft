@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "tag": "atlas-v0.2.3",
+  "tag": "server-v0.2.4",
   "channel": "production-live-testing",
   "source": "ffe6b3ad7af29e1e4571be60a0a3c1bf8fcdc6dc",
   "components": [
@@ -14,11 +14,11 @@
     },
     {
       "type": "pumpkin-server",
-      "version": "0.2.3",
+      "version": "0.2.4",
       "asset": "saturn_atlas.wasm",
-      "size": 1234274,
-      "sha256": "69f9b87a24b94ef2ca66b5ae917281419923ecd57eabea81ec0bf47d8debac55",
-      "download": "https://github.com/Zigdon7/MooreMinecraft/releases/download/atlas-v0.2.3/saturn_atlas.wasm"
+      "size": 1251756,
+      "sha256": "edae35900d15378247ab27a4d94540ff72f6434b856e613f02ba9f30c52033cf",
+      "download": "https://github.com/Zigdon7/MooreMinecraft/releases/download/server-v0.2.4/saturn_atlas.wasm"
     },
     {
       "type": "windows-updater",
@@ -29,5 +29,7 @@
       "download": "https://github.com/Zigdon7/MooreMinecraft/releases/download/manager-v0.3.0/Saturn-Mod-Manager.exe"
     }
   ],
-  "server_source": "ffe6b3ad7af29e1e4571be60a0a3c1bf8fcdc6dc"
+  "server_source": "66d412f496fe7834aaeaa427533528f7fd33e159",
+  "native_source": "1d70914962e8f71315af47bc93bfaaa31a06b8d3",
+  "native_sha256": "1ee1ae554186a73014d67dc41685daef3664564ceaa17418578506baee6dbc62"
 }

@@ -1,4 +1,4 @@
-# Plugin load-chunk backport candidate (not deployed)
+# Plugin load-chunk backport — deployed for production live testing
 
 Source: Pumpkin PR3721, commit 5a28128648777ec5b71c23f498e66f0c6227701a.
 Base: eda6944 + tested PR4373 backport95acaca. Host patch GPL-3.0; upstream attribution and license retained. https://github.com/Pumpkin-MC/Pumpkin/pull/3721
@@ -17,6 +17,8 @@ Optimized command, with documented user-owned Zig CC/AR wrappers:
 
 Guest0.2.4 includes released client0.2.1 cache/player presence changes:27 Rust+57 Java tests pass, fresh-checkout CI green. Runtime uses a disposable three-dimension loopback world on25569, zero players, positive/negative marker chunks, independent lease expiry, unload/reload and console safety preflight. Never install the destructive test probe in shared/prod worlds.
 
-Production still runs stock Pumpkin + Atlas server0.2.3/client0.2.1. Owner explicitly authorized promotion after checks (reconfirmed 'move everything to prod'); full backup and rollback pair must be retained. Real-client gameplay/particle acceptance must be reported separately from automated checks.
+Production now runs the matching combined legacy-ABI engine + Atlas server0.2.4/client0.2.1. Owner explicitly authorized promotion after checks (reconfirmed 'move everything to prod'); full backup and rollback pair must be retained. Real-client gameplay/particle acceptance must be reported separately from automated checks.
 
 Verification: `cargo run --locked -p pumpkin-codegen -- wit` completed in an isolated source worktree with no generated diff. Built guest component header/package markers confirm legacy0.1.0 + load-chunk; this is a boundary marker check, not runtime linking proof. Presence is now subscribed by a compatible cache request and reset on join, preserving older-client packet compatibility. Updated 84-test guest suite passes.
+
+Production deployment06:03 UTC uses optimized binary SHA2561ee1ae554186a73014d67dc41685daef3664564ceaa17418578506baee6dbc62. The exact frozen pair passed actual runtime preloads, duplicate hold expiry, unloaded reloads, blocked/missing refusal, restart persistence and all3 live preflights. See mods/saturn-atlas/qa/CHUNK-PRELOAD-RUNTIME.md and server-v0.2.4 release provenance. Real client acceptance remains pending.

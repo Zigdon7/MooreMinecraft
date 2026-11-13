@@ -10,7 +10,7 @@ At 04:07 UTC both players disconnected with `clientbound/minecraft:level_particl
 
 Patch: `eyeblossom-disconnect.patch`, Pumpkin source commit `4555394` (`saturn-eyeblossom-disconnect`), based on stock `eda69440e6369c5f8a05c3f69fc809c40dab93a6`. It suppresses only the broken cosmetic Trail emission. Flower state, sounds, spread scheduling, other particles and player/world data remain unchanged. This is a mitigation, not complete vanilla particle parity. Patch follows Pumpkin GPL-3.0 licensing; see LICENSE alongside it.
 
-At documentation time: formatting/diff checks passed; isolated release build running at `/home/mc/pumpkin-eyeblossom-fix/build.log`; **not deployed or runtime-verified**. Do not claim production is fixed merely because this document exists. Deployment still requires owner confirmation, a fresh managed backup and rollback binary.
+2026-11-13 06:03 UTC: owner-approved combined production live-testing build is installed. Source content 1d70914962e8f71315af47bc93bfaaa31a06b8d3; binary SHA256 1ee1ae554186a73014d67dc41685daef3664564ceaa17418578506baee6dbc62. Exact protected source preflight passed; isolated chunk-loading/landing/restart tests and live startup/health passed. The mitigation is included in the deployed binary, but real Java-client eyeblossom transition/particle acceptance is still pending. Do not claim complete particle parity or that the original incident was conclusively reproduced. Verified full backup full-20261113T055643Z and the previous binary/plugin rollback pair are retained.
 
 ## Mandatory update gate
 

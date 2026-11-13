@@ -15,3 +15,6 @@ Disposable probe SHA256:b61de2588154ff3a2b80bd7806712301a963701e73aa7f6006befeca
 
 ## Boundaries
 These are real server/WASM runtime tests, not a real Minecraft-client gameplay/particle certification. Owner explicitly requested production live testing and approved the combined binary/plugin switch. Keep the existing world/structures and a verified full backup/rollback pair. Probe plugin is destructive fixture code and must NEVER be copied into production. Client0.2.1 and manager0.3.0 are unchanged by the server-only promotion.
+
+## Clean restart and production result
+Both fixture lodestones passed preflight again from unloaded chunks after a clean server restart with the probe disabled. Production promotion completed06:03 UTC with the identical frozen hashes. Atlas health passes;2197 terrain records/3 anchors/pending0 preserved byte-for-byte on startup. All3 actual live lodestones then passed safe preflight with was_loaded=false. No player moved/debited by these checks. Fresh full backup full-20261113T055643Z verified. Probe remained only in the disposable world. Real-client gameplay/particle acceptance is still pending.
