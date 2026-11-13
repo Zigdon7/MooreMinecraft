@@ -1,0 +1,43 @@
+From 4555394fe69db8dfba57c18c289094427ff278f1 Mon Sep 17 00:00:00 2001
+From: Saturn operator agent <saturn-agent@localhost>
+Date: Fri, 13 Nov 2026 04:11:11 +0000
+Subject: [PATCH] fix(block): suppress malformed eyeblossom Trail particles
+
+---
+ .../src/block/blocks/plant/eyeblossom.rs            | 13 +++++--------
+ 1 file changed, 5 insertions(+), 8 deletions(-)
+
+diff --git a/crates/pumpkin-core/src/block/blocks/plant/eyeblossom.rs b/crates/pumpkin-core/src/block/blocks/plant/eyeblossom.rs
+index d7ea1bc..0802375 100644
+--- a/crates/pumpkin-core/src/block/blocks/plant/eyeblossom.rs
++++ b/crates/pumpkin-core/src/block/blocks/plant/eyeblossom.rs
+@@ -4,7 +4,6 @@ use pumpkin_data::{
+     Block, BlockId, BlockStateId,
+     effect::StatusEffect,
+     entity::EntityType,
+-    particle::Particle,
+     sound::{Sound, SoundCategory},
+     tag::{self, Taggable},
+ };
+@@ -125,13 +124,11 @@ pub fn try_changing_state(world: &Arc<World>, current_block: &Block, pos: &Block
+ 
+     world.set_block_state(pos, new_block.default_state.id, BlockFlags::NOTIFY_ALL);
+ 
+-    world.spawn_particle(
+-        pos.to_centered_f64(),
+-        Vector3::new(0.0, 0.0, 0.0),
+-        0.0,
+-        1,
+-        Particle::Trail,
+-    );
++    // Saturn mitigation for Pumpkin-MC/Pumpkin#3065 and #3777: the generic
++    // spawn_particle API sends no option payload, but Trail requires a target,
++    // color and duration. Skip this cosmetic effect rather than disconnecting
++    // all Java clients. Keep state changes, sounds and propagation unchanged.
++    // Restore the effect when an upstream typed Trail implementation is available.
+ 
+     let mut rng = rand::rng();
+     for dx in -EYEBLOSSOM_XZ_RANGE..=EYEBLOSSOM_XZ_RANGE {
+-- 
+2.47.3
+

@@ -40,3 +40,7 @@ claims or replace a live binary without the operator's required approval/backup.
 
 Tested binary SHA256:
 `a606011e3e4318f405684c50710c0a1ecb9eb7776b01345dbff9aa752e981947`.
+
+## Protected eyeblossom disconnect mitigation
+
+See [EYEBLOSSOM-DISCONNECT.md](EYEBLOSSOM-DISCONNECT.md). Every future engine candidate must retain this mitigation or a verified upstream replacement; run the source preflight before building/promoting. Current documentation does not claim production deployment.
