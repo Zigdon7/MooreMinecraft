@@ -21,11 +21,11 @@
     },
     {
       "type": "windows-updater",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "asset": "Saturn-Mod-Manager.exe",
-      "size": 51706308,
-      "sha256": "870c86459336218d65f3be5aed960d5dcde2dee4ad46151d27e12b285cb0cd5a",
-      "download": "https://github.com/Zigdon7/MooreMinecraft/releases/download/v0.2.0/Saturn-Mod-Manager.exe"
+      "size": 51712378,
+      "sha256": "c931cce31febe2aa6df7f2ce18b9e5f99a6d3d4229a7aa2991c6fc777e042a7a",
+      "download": "https://github.com/Zigdon7/MooreMinecraft/releases/download/manager-v0.3.0/Saturn-Mod-Manager.exe"
     },
     {
       "type": "fabric-library",
