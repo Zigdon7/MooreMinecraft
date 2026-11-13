@@ -15,3 +15,7 @@ Do not deploy the new plugin on stock Pumpkin: its new import will not resolve.
 
 Optimized native build and isolated runtime validation pending. Production remains
 on stock Pumpkin plus Atlas0.2.1. A production binary switch needs explicit owner approval.
+
+2026-11-13 owner follow-up: "push this to prod for testing once complete" explicitly
+approves promoting this patched engine + guest after isolated tests and a fresh backup.
+No additional capabilities, world reset or unrelated engine upgrade is authorized.
