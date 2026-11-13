@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "tag": "v0.2.0",
+  "channel": "production-live-testing",
+  "source": "b945b0c5ac765397e184e987df3c3b9e207a1643",
+  "components": [
+    {
+      "type": "fabric-client",
+      "version": "0.2.0",
+      "asset": "saturn-atlas-companion-0.2.0.jar",
+      "size": 52898,
+      "sha256": "6889530414b1bf12fc0a546220fe5b9fb9ecd68c45c8e602d79abeae6d345af6",
+      "download": "https://github.com/Zigdon7/MooreMinecraft/releases/download/v0.2.0/saturn-atlas-companion-0.2.0.jar"
+    },
+    {
+      "type": "pumpkin-server",
+      "version": "0.2.0",
+      "asset": "saturn_atlas.wasm",
+      "size": 1190088,
+      "sha256": "776bbaadcafe6d2f25ce6f4df888fb7b498b28c1a4f3279dcfff3b20e0f685a8",
+      "download": "https://github.com/Zigdon7/MooreMinecraft/releases/download/v0.2.0/saturn_atlas.wasm"
+    },
+    {
+      "type": "windows-updater",
+      "version": "0.2.0",
+      "asset": "Saturn-Mod-Manager.exe",
+      "size": 51706308,
+      "sha256": "870c86459336218d65f3be5aed960d5dcde2dee4ad46151d27e12b285cb0cd5a",
+      "download": "https://github.com/Zigdon7/MooreMinecraft/releases/download/v0.2.0/Saturn-Mod-Manager.exe"
+    }
+  ]
+}

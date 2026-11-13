@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "packId": "saturn",
+  "version": "0.2.0-live-testing",
+  "minecraft": "26.3",
+  "fabricLoader": "0.20.1",
+  "mods": [
+    {
+      "id": "fabric-api",
+      "repo": "Zigdon7/MooreMinecraft",
+      "tag": "staging-v0.1.2",
+      "asset": "fabric-api-0.165.2+26.3.jar",
+      "sha256": "2612a078a5daa06d9a14cabad40fe66de36b8cb22ee8cdf346d5d9894478c392",
+      "size": 1779306
+    },
+    {
+      "id": "saturn_atlas",
+      "repo": "Zigdon7/MooreMinecraft",
+      "tag": "v0.2.0",
+      "asset": "saturn-atlas-companion-0.2.0.jar",
+      "sha256": "6889530414b1bf12fc0a546220fe5b9fb9ecd68c45c8e602d79abeae6d345af6",
+      "size": 52898
+    }
+  ]
+}
