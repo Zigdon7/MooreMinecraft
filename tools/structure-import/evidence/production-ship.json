@@ -1,0 +1,17 @@
+{
+  "target": "production",
+  "origin": [
+    -1280,
+    63,
+    1052
+  ],
+  "size": [
+    9,
+    13,
+    22
+  ],
+  "verified_blocks": 412,
+  "water_y": 62,
+  "verified_water_cells": 198,
+  "schematic_sha256": "73196e2eed2a6baa8c3de5ffb347a996c767d43e9ba977968952f66230f91c5b"
+}
