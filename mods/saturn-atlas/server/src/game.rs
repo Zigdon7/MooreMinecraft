@@ -190,9 +190,9 @@ fn origin<'a>(atlas: &'a saturn_atlas_core::Atlas, p: &Player) -> Option<&'a Anc
         a.accessible(&id) && a.position.distance(&at).is_some_and(|d| d <= 4.0) && exists(p, a)
     })
 }
-fn exists(p: &Player, a: &Anchor) -> bool {
-    let w = p.get_world();
-    if world_key(&w) != a.position.world {
+fn exists(p: &Player, a: &Anchor) -> bool { exists_in_world(&p.get_world(),a) }
+fn exists_in_world(w: &World, a: &Anchor) -> bool {
+    if world_key(w) != a.position.world {
         return false;
     }
     let b = BlockPos {
@@ -209,9 +209,9 @@ fn balance(p: &Player) -> u32 {
         .as_inventory()
         .count_item("minecraft:amethyst_shard")
 }
-fn preload_destination(p: &Player, a: &Anchor) -> Result<(), String> {
-    let w = p.get_world();
-    if world_key(&w) != a.position.world {
+fn preload_destination(p: &Player, a: &Anchor) -> Result<(), String> { preload_in_world(&p.get_world(),a) }
+fn preload_in_world(w: &World, a: &Anchor) -> Result<(), String> {
+    if world_key(w) != a.position.world {
         return Err("Destination lodestone is in another dimension".into());
     }
     // PR3721 loads before any block validation; hold lasts through this command.
@@ -220,9 +220,9 @@ fn preload_destination(p: &Player, a: &Anchor) -> Result<(), String> {
         (a.position.z.floor() as i32).div_euclid(16));
     Ok(())
 }
-fn safe_landing(p: &Player, a: &Anchor) -> Result<(f64, f64, f64), String> {
-    let w = p.get_world();
-    if !exists(p, a) {
+fn safe_landing(p: &Player, a: &Anchor) -> Result<(f64, f64, f64), String> { safe_landing_in_world(&p.get_world(),a) }
+fn safe_landing_in_world(w: &World, a: &Anchor) -> Result<(f64, f64, f64), String> {
+    if !exists_in_world(w, a) {
         return Err("Destination lodestone block is missing".into());
     }
     let x = a.position.x.floor() as i32;
@@ -393,6 +393,19 @@ impl CommandHandler for Cmd {
             Arg::Simple(s) | Arg::Msg(s) => s,
             _ => String::new(),
         };
+        if self.kind && words.starts_with("preflight ") && sender.is_console() {
+            let anchor={let r=lock(&self.shared).map_err(|e|CommandError::CommandFailed(TextComponent::text(&e)))?;r.store.state.atlas.anchors.get(words[10..].trim()).cloned()};
+            let checked=(|| -> Result<String,String> {
+                let a=anchor.ok_or("Unknown destination")?;
+                let w=server.get_all_worlds().into_iter().find(|w|world_key(w)==a.position.world).ok_or("Destination world unavailable")?;
+                let was_loaded=w.get_chunk((a.position.x.floor() as i32).div_euclid(16),(a.position.z.floor() as i32).div_euclid(16)).is_some();
+                preload_in_world(&w,&a)?;
+                let landing=safe_landing_in_world(&w,&a)?;
+                Ok(format!("ATLAS_PREFLIGHT_OK id={} was_loaded={} landing={:?}",a.id,was_loaded,landing))
+            })();
+            let text=match checked {Ok(s)=>s,Err(e)=>format!("ATLAS_PREFLIGHT_REFUSED {e}")};
+            sender.send_message(TextComponent::text(&text));return Ok(1);
+        }
         if self.kind && words.trim() == "diagnostics" && sender.is_console() {
             let r = lock(&self.shared).map_err(|e| CommandError::CommandFailed(TextComponent::text(&e)))?;
             for p in server.get_all_players() {

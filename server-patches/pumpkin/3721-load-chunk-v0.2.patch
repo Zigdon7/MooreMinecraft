@@ -25,22 +25,29 @@ index 84892ea..e783c6f 100644
          "pumpkin:plugin/datapack@0.2.0.[method]datapack-manager.disable-pack": async | store | trappable,
          "pumpkin:plugin/datapack@0.2.0.[method]datapack-manager.enable-pack": async | store | trappable,
 diff --git a/crates/pumpkin-wasm-host-v0_2/src/world.rs b/crates/pumpkin-wasm-host-v0_2/src/world.rs
-index b2e0c90..4e670da 100644
+index b2e0c90..c00810d 100644
 --- a/crates/pumpkin-wasm-host-v0_2/src/world.rs
 +++ b/crates/pumpkin-wasm-host-v0_2/src/world.rs
-@@ -665,6 +665,29 @@ impl pumpkin::plugin::world::HostWorld for PluginHostState {
+@@ -665,6 +665,42 @@ impl pumpkin::plugin::world::HostWorld for PluginHostState {
          }
      }
  
 +    // Adapted from Pumpkin-MC/Pumpkin PR3721, commit 5a28128648777ec5b71c23f498e66f0c6227701a.
-+    async fn load_chunk(accessor: &Accessor<PluginHostState, Self>, world: Resource<World>, x: i32, z: i32)
-+        -> wasmtime::Result<Resource<WitChunk>> {
++    async fn load_chunk(
++        accessor: &Accessor<PluginHostState, Self>,
++        world: Resource<World>,
++        x: i32,
++        z: i32,
++    ) -> wasmtime::Result<Resource<WitChunk>> {
 +        use pumpkin_world::chunk_system::ChunkLoading;
 +        let world_provider = accessor.with(|mut host| world_from_state(host.get(), &world))?;
 +        let level = world_provider.level.clone();
 +        let pos = pumpkin_util::math::vector2::Vector2::new(x, z);
 +        {
-+            let mut loading = level.chunk_loading.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
++            let mut loading = level
++                .chunk_loading
++                .lock()
++                .unwrap_or_else(std::sync::PoisonError::into_inner);
 +            loading.add_ticket(pos, ChunkLoading::FULL_CHUNK_LEVEL);
 +            loading.send_change();
 +        }
@@ -48,11 +55,17 @@ index b2e0c90..4e670da 100644
 +        let held = level.clone();
 +        level.spawn_task(async move {
 +            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-+            let mut loading = held.chunk_loading.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
++            let mut loading = held
++                .chunk_loading
++                .lock()
++                .unwrap_or_else(std::sync::PoisonError::into_inner);
 +            loading.remove_ticket(pos, ChunkLoading::FULL_CHUNK_LEVEL);
 +            loading.send_change();
 +        });
-+        accessor.with(|mut host| host.get().add((world_provider, std::sync::Arc::downgrade(&chunk))))
++        accessor.with(|mut host| {
++            host.get()
++                .add((world_provider, std::sync::Arc::downgrade(&chunk)))
++        })
 +    }
 +
      fn get_block_state_id(
