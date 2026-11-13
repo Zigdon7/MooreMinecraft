@@ -1,0 +1,60 @@
+diff --git a/crates/pumpkin-plugin-wit/v0.2/world.wit b/crates/pumpkin-plugin-wit/v0.2/world.wit
+index 538201c..dc79fa2 100644
+--- a/crates/pumpkin-plugin-wit/v0.2/world.wit
++++ b/crates/pumpkin-plugin-wit/v0.2/world.wit
+@@ -820,6 +820,9 @@ interface %world {
+         /// Gets the chunk at the specified chunk coordinates.
+         get-chunk: func(x: s32, z: s32) -> option<chunk>;
+ 
++        /// Load or generate a chunk, retaining a temporary full-chunk ticket. Backport of PR3721.
++        load-chunk: func(x: s32, z: s32) -> chunk;
++
+         /// Returns whether the chunk at the specified chunk coordinates is currently loaded.
+         is-chunk-loaded: func(x: s32, z: s32) -> bool;
+ 
+diff --git a/crates/pumpkin-wasm-host-v0_2/src/bindings.rs b/crates/pumpkin-wasm-host-v0_2/src/bindings.rs
+index 84892ea..e783c6f 100644
+--- a/crates/pumpkin-wasm-host-v0_2/src/bindings.rs
++++ b/crates/pumpkin-wasm-host-v0_2/src/bindings.rs
+@@ -4,6 +4,7 @@ bindgen!({
+     path: "../pumpkin-plugin-wit/v0.2",
+     world: "plugin",
+     imports: {
++        "pumpkin:plugin/world@0.2.0.[method]world.load-chunk": async | store | trappable,
+         "pumpkin:plugin/command@0.2.0.[method]command-sender.has-permission": async | store | trappable,
+         "pumpkin:plugin/datapack@0.2.0.[method]datapack-manager.disable-pack": async | store | trappable,
+         "pumpkin:plugin/datapack@0.2.0.[method]datapack-manager.enable-pack": async | store | trappable,
+diff --git a/crates/pumpkin-wasm-host-v0_2/src/world.rs b/crates/pumpkin-wasm-host-v0_2/src/world.rs
+index b2e0c90..cf6bf20 100644
+--- a/crates/pumpkin-wasm-host-v0_2/src/world.rs
++++ b/crates/pumpkin-wasm-host-v0_2/src/world.rs
+@@ -665,6 +665,29 @@ impl pumpkin::plugin::world::HostWorld for PluginHostState {
+         }
+     }
+ 
++    // Adapted from Pumpkin-MC/Pumpkin PR3721, commit 5a28128648777ec5b71c23f498e66f0c6227701a.
++    async fn load_chunk(&mut self, world: Resource<World>, x: i32, z: i32)
++        -> wasmtime::Result<Resource<WitChunk>> {
++        use pumpkin_world::chunk_system::ChunkLoading;
++        let world_provider = self.get(&world)?.clone();
++        let level = world_provider.level.clone();
++        let pos = pumpkin_util::math::vector2::Vector2::new(x, z);
++        {
++            let mut loading = level.chunk_loading.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
++            loading.add_ticket(pos, ChunkLoading::FULL_CHUNK_LEVEL);
++            loading.send_change();
++        }
++        let chunk = level.get_or_fetch_chunk(pos, Clone::clone).await;
++        let held = level.clone();
++        level.spawn_task(async move {
++            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
++            let mut loading = held.chunk_loading.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
++            loading.remove_ticket(pos, ChunkLoading::FULL_CHUNK_LEVEL);
++            loading.send_change();
++        });
++        self.add((world_provider, std::sync::Arc::downgrade(&chunk)))
++    }
++
+     fn get_block_state_id(
+         &mut self,
+         world: Resource<World>,

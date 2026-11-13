@@ -210,10 +210,17 @@ fn balance(p: &Player) -> u32 {
         .count_item("minecraft:amethyst_shard")
 }
 fn safe_landing(p: &Player, a: &Anchor) -> Result<(f64, f64, f64), String> {
-    if !exists(p, a) {
-        return Err("Destination lodestone missing, unloaded, or in another dimension".into());
-    }
     let w = p.get_world();
+    if world_key(&w) != a.position.world {
+        return Err("Destination lodestone is in another dimension".into());
+    }
+    // PR3721 loads before any block validation; hold lasts through this command.
+    // Quote and confirm both call here, so expiration of an earlier hold is safe.
+    let _loaded = w.load_chunk((a.position.x.floor() as i32).div_euclid(16),
+        (a.position.z.floor() as i32).div_euclid(16));
+    if !exists(p, a) {
+        return Err("Destination lodestone block is missing".into());
+    }
     let x = a.position.x.floor() as i32;
     let y = a.position.y.floor() as i32;
     let z = a.position.z.floor() as i32;
