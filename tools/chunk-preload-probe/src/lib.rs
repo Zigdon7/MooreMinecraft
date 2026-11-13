@@ -11,7 +11,13 @@ fn phase(server:Server, initial:bool) {
         let _chunk=world.load_chunk(x,z);
         assert!(world.get_chunk(x,z).is_some(),"Preload did not make chunk readable");
         let pos=BlockPos{x:x*16+1,y:200,z:z*16+1};
-        if initial { assert!(world.set_block_by_name(pos,"minecraft:lodestone",BlockFlags::empty())); }
+        if initial {
+            assert!(world.set_block_by_name(pos,"minecraft:lodestone",BlockFlags::empty()));
+            // Deterministic clear arrival space even if this seed has a tall mountain here.
+            for dx in -1..=1 {for dz in -1..=1 {for y in 201..=202 {
+                world.set_block_by_name(BlockPos{x:pos.x+dx,y,z:pos.z+dz},"minecraft:air",BlockFlags::empty());
+            }}}
+        }
         let state=world.get_block_state(pos);
         assert_eq!(state.block_name.trim_start_matches("minecraft:"),"lodestone","Stored marker did not survive reload");
         // Duplicate lease: returning must not consume another caller's hold.
