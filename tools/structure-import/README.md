@@ -1,7 +1,9 @@
 # Structure import and force-load prototype
 
-**Verified in an isolated world only. Not deployed to shared staging or production.**
+**Gatehouse: isolated-tested. Village: prepared only. Ship: owner-authorized production placement verified on 2026-11-13.**
 See [QA.md](QA.md) and [sanitized evidence](evidence/) for observed results and limitations.
+See [SHIP-QA.md](SHIP-QA.md) for the separate production ship run. The native
+force-load patch has not been deployed to production by this work.
 
 ## What was fixed
 
@@ -22,6 +24,34 @@ the isolated runtime probes to pass. These are build/test workarounds, not claim
 of production performance or general vanilla parity.
 
 ## Importer
+
+### Ship example (production placement verified)
+
+`python3 make_ship.py` generates the original static `ship.schem`: a tapered
+wooden hull, deck, stern cabin, mast, white sails and red pennant, 9×13×22 / 412
+blocks. This is a decorative build, not a movable boat entity.
+
+On 2026-11-13 the owner explicitly requested a test next to them in production.
+The ship was placed at origin **(-1280,63,1052)**, above water Y62. A managed,
+verified pre-build backup was taken. The 198-cell water footprint and all 2,574
+loaded airspace cells were checked before any placement. `keep` was used for all
+412 placements; 412/412 exact block checks and 198/198 underlying water checks
+passed afterward, then `save-all flush` was confirmed. No binary/plugin, player
+teleport, or force-load registration changes were made for the production build.
+No client screenshot or restart test is claimed for this ship run.
+
+Production is opt-in: `--apply-production` requires `--loaded-only`, rejects
+staging/scratch combinations, and must only be used for an owner-authorized live
+placement. `--surface-site --loaded-only` permits surveyed lower-altitude plots;
+it preflights the **entire** loaded, empty bounding volume before writing. It does
+not survey water automatically: the operator must check the actual water surface
+and place the hull immediately above it, without replacing water or existing builds.
+Negative world coordinates are supported. An unloaded chunk reading as air is
+not accepted: loaded and air conditions are checked together.
+
+`verify_structure.py FILE --target production --origin X Y Z --water-y Y` is a
+read-only verifier for any supported fixture and the water footprint, with an
+explicit target choice; its output defaults to ignored `runtime/verification.json`.
 
 ### Small village example (prepared, not yet placed)
 
@@ -45,7 +75,8 @@ passed after a clean restart**, with a deliberately incorrect negative control.
 
 Supported parsing: Sponge v2/v3 `.schem` and Java structure `.nbt`. Air is skipped;
 entity/block-entity data is rejected. Prototype limits: 10,000 non-air blocks,
-128 blocks per axis, high-altitude plots only. Origin means the normalized minimum
+128 blocks per axis, high-altitude by default (explicit surveyed surface mode as
+above). Origin means the normalized minimum
 corner; original schematic offsets are not applied.
 
 Current host `/setblock` does not parse state properties, so apply rejects them
@@ -62,7 +93,7 @@ python3 import_structure.py gatehouse.schem --origin 96 200 96
 ```
 
 Python uses only its standard library. The dry run writes ignored `last-plan.json`.
-Tests regenerate the deterministic original fixture. Seven parser/validation checks
+Tests regenerate the deterministic original fixture. Ten parser/validation checks
 pass; those tests alone are not live placement or graphical-rendering proof.
 
 ## Operator-only live commands
@@ -74,7 +105,8 @@ stopped cleanly after verification; it is not currently a public viewing endpoin
 - Default target: existing shared staging `tmux -L saturn-stage`, session `atlas`,
   port 25566. `--apply-staging` enables writes; `--test-scratch` changes the target
   only to the isolated `structure-test:prototype` console, loopback port 25567.
-- There is no production console target in the importer.
+- Production requires the separate explicit flag and loaded-only preflight described above; the default target is not production.
+- `--loaded-only` never adds/removes force-load registrations, avoiding changes to other operators' loaders.
 - Placement uses `keep`, throttles commands, and requires success acknowledgement.
   Failure leaves already placed blocks intact; there is no automatic rollback.
 - `probe_loader.py patched` exercises only the isolated console; it creates a
@@ -99,5 +131,5 @@ permission prompt remains manual. Do not modify `/opt/pumpkin/pumpkin` to deploy
 this prototype: production also uses it.
 
 No binaries, world/player data, auth configuration, backups or raw runtime logs
-are included here. New tool code and the original gatehouse use the repository's
+are included here. New tool code and the original gatehouse, village and ship use the repository's
 MIT license; the separate upstream Pumpkin patch retains GPL-3.0 and attribution.

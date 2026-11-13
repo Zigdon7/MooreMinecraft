@@ -8,7 +8,7 @@ public final class AtlasHud {
   int size=Math.max(0,Math.min(preferred,Math.min(width-16,height-38)));
   return new AtlasLayout.Rect(corner%2==1?8:width-size-8,corner>=2?height-size-30:8,size,size);
  }
- public boolean due(long now,boolean connected,boolean supported,boolean screenAllowed){if(!connected||!supported||!screenAllowed||now<nextRequest)return false;nextRequest=now+5_000_000_000L;return true;}
- public void reply(long now){nextRequest=now+5_000_000_000L;}
- public void reset(){nextRequest=0;}
+ public boolean due(long now,boolean connected,boolean supported,boolean screenAllowed){return false;}
+ public void reply(long now){}
+ public void reset(){}
 }

@@ -231,7 +231,7 @@ dependencies = [
 
 [[package]]
 name = "saturn-atlas"
-version = "0.2.2"
+version = "0.2.4"
 dependencies = [
  "pumpkin-plugin-api",
  "saturn-atlas-core",

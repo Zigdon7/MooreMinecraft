@@ -17,6 +17,53 @@ public final class AtlasModel {
         public int span(){return 144*zoom;}
     }
     public Snapshot snapshot;
+    public boolean cacheLoading;
+    private List<Point> players=List.of();
+    private long playersAt;
+    public List<Point> players(long now){return now-playersAt>5_000_000_000L?List.of():players;}
+    private void receivePlayers(JsonObject root,long now){
+        if(snapshot==null||!bounded(root,"world",128).equals(snapshot.world())){players=List.of();return;}
+        players=points(root,"players",128);playersAt=now;
+    }
+    private String cacheWorld="",cacheToken="";
+    private int cacheBatches,cacheNext,cacheCount;
+    private final Map<Long,Tile> pendingCache=new LinkedHashMap<>();
+    private final Map<Integer,List<Tile>> levels=new HashMap<>();
+    private static long tileKey(int x,int z){return ((long)x<<32)^(z&0xffffffffL);}
+    private void clearCache(){cacheLoading=false;cacheWorld="";cacheToken="";pendingCache.clear();levels.clear();players=List.of();playersAt=0;}
+    /** Data coordinates of the rendered tiles; viewing zoom is independent. */
+    public int dataZoom(int requested){return levels.containsKey(1)?requested:snapshot==null?1:snapshot.zoom();}
+    public List<Tile> tilesAtZoom(int requested){
+        if(!levels.containsKey(1))return snapshot==null?List.of():snapshot.tiles();
+        return levels.computeIfAbsent(requested,z->{
+            Map<Long,int[]> pixels=new TreeMap<>();
+            for(var tile:levels.get(1))for(int i=0;i<16;i++){
+                int c=tile.pixels()[i];if(c==0)continue;
+                int px=Math.floorDiv(tile.x()*4+i%4,z),pz=Math.floorDiv(tile.z()*4+i/4,z);
+                long key=tileKey(Math.floorDiv(px,4),Math.floorDiv(pz,4));
+                var a=pixels.computeIfAbsent(key,k->new int[16]);int index=Math.floorMod(pz,4)*4+Math.floorMod(px,4);
+                if(a[index]==0)a[index]=c;
+            }
+            List<Tile> result=new ArrayList<>();pixels.forEach((k,v)->result.add(new Tile((int)(k>>32),(int)(long)k,v)));return List.copyOf(result);
+        });
+    }
+    private void receiveCache(JsonObject root,long now){
+        if(snapshot==null||!bounded(root,"world",128).equals(snapshot.world()))throw new IllegalArgumentException("Cache world mismatch");
+        String kind=bounded(root,"cache",8),token=bounded(root,"token",40);
+        if(kind.equals("begin")){
+            cacheToken=token;cacheCount=integer(root,"count",0,65536);cacheBatches=integer(root,"batches",0,683);
+            if(cacheBatches!=(cacheCount+95)/96)throw new IllegalArgumentException("Cache batch count");
+            cacheNext=0;pendingCache.clear();cacheLoading=cacheBatches>0;state=cacheLoading?State.WAITING:State.READY;started=now;
+            if(!cacheLoading){levels.clear();levels.put(1,List.of());cacheWorld=snapshot.world();receivedAt=now;}return;
+        }
+        if(!kind.equals("data"))throw new IllegalArgumentException("Invalid cache kind");
+        if(!cacheLoading||!token.equals(cacheToken))return;
+        if(integer(root,"batch",0,682)!=cacheNext)throw new IllegalArgumentException("Cache order");
+        var batch=array(root,"tiles",96);if(batch.size()!=Math.min(96,cacheCount-cacheNext*96))throw new IllegalArgumentException("Cache size");
+        for(var e:batch){var t=e.getAsJsonObject();int x=integer(t,"x",-1875000,1875000),z=integer(t,"z",-1875000,1875000);var raw=array(t,"pixels",16);if(raw.size()!=16)throw new IllegalArgumentException("Cache tile");int[] a=new int[16];for(int i=0;i<16;i++){double n=raw.get(i).getAsDouble();if(!Double.isFinite(n)||n!=Math.rint(n)||n<0||n>255)throw new IllegalArgumentException("Cache pixel");a[i]=(int)n;}if(pendingCache.putIfAbsent(tileKey(x,z),new Tile(x,z,a))!=null)throw new IllegalArgumentException("Duplicate cache tile");}
+        cacheNext++;started=now;
+        if(cacheNext==cacheBatches){if(pendingCache.size()!=cacheCount)throw new IllegalArgumentException("Cache count");levels.clear();levels.put(1,List.copyOf(pendingCache.values()));pendingCache.clear();cacheWorld=snapshot.world();cacheLoading=false;receivedAt=now;state=State.READY;notice="Shared map cached. Zoom and drag locally; Refresh to update.";}
+    }
     public String selected="",notice="";
     public State state=State.IDLE;
     /** Zoom the open map asks for: 1 is closest, each step doubles the area. */
@@ -59,8 +106,8 @@ public final class AtlasModel {
     private long started;
     private long receivedAt;
     public void request(long now){started=now;state=State.WAITING;notice="Requesting map…";}
-    public void tick(long now){if(state==State.WAITING&&now-started>=TIMEOUT_NANOS){state=State.TIMEOUT;notice="No server reply. Refresh to retry.";}}
-    public void reset(){snapshot=null;selected="";notice="";state=State.IDLE;receivedAt=0;zoom=1;panned=false;}
+    public void tick(long now){if(state==State.WAITING&&now-started>=TIMEOUT_NANOS){cacheLoading=false;pendingCache.clear();state=State.TIMEOUT;notice="No server reply. Refresh to retry.";}}
+    public void reset(){clearCache();snapshot=null;selected="";notice="";state=State.IDLE;receivedAt=0;zoom=1;panned=false;}
     public String freshness(long now){
         if(state==State.ERROR)return "Error: "+notice;
         if(state==State.TIMEOUT)return "Stale: no server reply";
@@ -71,7 +118,7 @@ public final class AtlasModel {
     public String describe(double x,double z,float yaw){
         if(snapshot==null)return "No map data. Refresh to retry.";
         String heading=switch(Math.floorMod(Math.round(yaw/90),4)){case 0->"south";case 1->"west";case 2->"north";default->"east";};
-        return "Position "+(int)Math.floor(x)+", "+(int)Math.floor(z)+". Facing "+heading+". North is decreasing Z; east is increasing X. "+snapshot.anchors().size()+" lodestones and "+snapshot.markers().size()+" markers. ";
+        return "Position "+(int)Math.floor(x)+", "+(int)Math.floor(z)+". Facing "+heading+". North is decreasing Z; east is increasing X. "+snapshot.anchors().size()+" lodestones and "+snapshot.markers().size()+" markers and "+players(System.nanoTime()).size()+" other players. ";
     }
     public static String pointPageLabel(int index,int count){
         if(index<0)return "Overview; "+count+" points available";
@@ -97,12 +144,14 @@ public final class AtlasModel {
             if(json.length()>32000)throw new IllegalArgumentException("Reply too large");
             var root=JsonParser.parseString(json).getAsJsonObject();
             if(integer(root,"v",1,1)!=1)throw new IllegalArgumentException("Protocol version mismatch");
+            if(root.has("roster")){receivePlayers(root,now);return;}
+            if(root.has("cache")){receiveCache(root,now);return;}
             if(root.has("error")){notice=bounded(root,"error",256);state=State.ERROR;return;}
             if(root.has("notice")){notice=bounded(root,"notice",256);return;}
-            snapshot=parse(root,now);receivedAt=now;zoom=Math.min(zoom,snapshot.maxZoom());if(!snapshot.pannable())panned=false;
+            var next=parse(root,now);if(snapshot!=null&&!next.world().equals(snapshot.world()))clearCache();snapshot=next;receivedAt=now;zoom=Math.min(zoom,snapshot.maxZoom());if(!snapshot.pannable())panned=false;
             if(snapshot.anchors().stream().noneMatch(a->a.id().equals(selected)))selected="";
             state=State.READY;if(notice.isEmpty()||notice.startsWith("Requesting"))notice=snapshot.tiles().isEmpty()?"No terrain yet. Explore, then refresh.":"Shared map updated";
-        }catch(RuntimeException e){state=State.ERROR;notice="Invalid map reply. Refresh to retry.";}
+        }catch(RuntimeException e){cacheLoading=false;pendingCache.clear();state=State.ERROR;notice="Invalid map reply. Refresh to retry.";}
     }
     static Snapshot parse(JsonObject root,long now){
         String world=bounded(root,"world",128);double x=coordinate(root,"x"),z=coordinate(root,"z");
@@ -128,7 +177,8 @@ public final class AtlasModel {
         }
         return new Snapshot(world,x,z,integer(root,"balance",0,2304),List.copyOf(tiles),anchors,markers,quote,zoom,maxZoom,centerX,centerZ,pannable);
     }
-    static List<Point> points(JsonObject root,String field){List<Point> result=new ArrayList<>();Set<String> seen=new HashSet<>();for(var e:array(root,field,40)){var p=e.getAsJsonObject();String id=uuid(p,"id");if(!seen.add(id))throw new IllegalArgumentException("Duplicate marker");result.add(new Point(id,bounded(p,"name",40),coordinate(p,"x"),coordinate(p,"z")));}return List.copyOf(result);}
+    static List<Point> points(JsonObject root,String field){return points(root,field,40);}
+    static List<Point> points(JsonObject root,String field,int limit){List<Point> result=new ArrayList<>();Set<String> seen=new HashSet<>();for(var e:array(root,field,limit)){var p=e.getAsJsonObject();String id=uuid(p,"id");if(!seen.add(id))throw new IllegalArgumentException("Duplicate marker");result.add(new Point(id,bounded(p,"name",40),coordinate(p,"x"),coordinate(p,"z")));}return List.copyOf(result);}
     static String uuid(JsonObject o,String key){String s=bounded(o,key,36);if(!s.matches("[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}"))throw new IllegalArgumentException("Invalid UUID");return s;}
     static JsonArray array(JsonObject o,String key,int max){var a=o.getAsJsonArray(key);if(a==null||a.size()>max)throw new IllegalArgumentException("Invalid array");return a;}
     static String bounded(JsonObject o,String key,int max){var value=o.get(key);if(value==null||!value.isJsonPrimitive()||!value.getAsJsonPrimitive().isString())throw new IllegalArgumentException("Invalid string");String s=value.getAsString();if(s.length()>max||s.chars().anyMatch(c->Character.isISOControl(c)||c=='§'))throw new IllegalArgumentException("Invalid string");return s;}

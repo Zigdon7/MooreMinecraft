@@ -1,10 +1,37 @@
 import unittest
 import tempfile
+import subprocess,sys
 from pathlib import Path
 from import_structure import decode,load,state
 from make_fixture import build
 
 class ImportTests(unittest.TestCase):
+    def test_surface_plan_requires_loaded_only(self):
+        root=Path(__file__).parent
+        args=[sys.executable,str(root/'import_structure.py'),str(root/'ship.schem'),'--origin','-1216','64','1109','--surface-site']
+        rejected=subprocess.run(args,capture_output=True,text=True)
+        self.assertNotEqual(rejected.returncode,0)
+        self.assertIn('--surface-site requires --loaded-only',rejected.stderr)
+        accepted=subprocess.run(args+['--loaded-only'],capture_output=True,text=True)
+        self.assertEqual(accepted.returncode,0,accepted.stderr)
+    def test_production_requires_loaded_only_and_exclusive_target(self):
+        root=Path(__file__).parent
+        base=[sys.executable,str(root/'import_structure.py'),str(root/'ship.schem'),'--apply-production']
+        for extra in ([],['--loaded-only','--apply-staging'],['--loaded-only','--test-scratch']):
+            result=subprocess.run(base+extra,capture_output=True,text=True)
+            self.assertNotEqual(result.returncode,0)
+            self.assertIn('Production requires --loaded-only',result.stderr)
+    def test_ship_keel_cabin_and_sail(self):
+        from make_ship import build as ship
+        with tempfile.TemporaryDirectory() as folder:
+            size,blocks=decode(load(ship(Path(folder)/'ship.schem')))
+        self.assertEqual(size,[9,13,22])
+        cells=dict(blocks)
+        for z in range(22): self.assertEqual(cells[(4,0,z)],'minecraft:dark_oak_planks')
+        for y in (2,3): self.assertNotIn((4,y,17),cells)
+        self.assertEqual(cells[(4,9,9)],'minecraft:white_wool')
+        self.assertEqual(cells[(6,12,8)],'minecraft:red_wool')
+        self.assertTrue(all('[' not in s for s in cells.values()))
     def test_village_walkable_doorways(self):
         from make_village import build as village
         with tempfile.TemporaryDirectory() as folder:

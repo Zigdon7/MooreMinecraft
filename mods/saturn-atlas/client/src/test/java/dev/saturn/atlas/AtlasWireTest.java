@@ -15,4 +15,12 @@ class AtlasWireTest {
  @Test void actualCodecRejectsTruncatedPayload(){var buf=new RegistryFriendlyByteBuf(Unpooled.wrappedBuffer(new byte[]{10,123}),RegistryAccess.EMPTY);try{assertThrows(RuntimeException.class,()->SaturnAtlasClient.AtlasPayload.CODEC.decode(buf));}finally{buf.release();}}
  @Test void actualCodecRejectsOversizedDeclaredLength(){var buf=new RegistryFriendlyByteBuf(Unpooled.buffer(),RegistryAccess.EMPTY);try{buf.writeVarInt(100000);assertThrows(RuntimeException.class,()->SaturnAtlasClient.AtlasPayload.CODEC.decode(buf));}finally{buf.release();}}
  @Test void actualCodecRoundTripsIdenticalServerBytes() throws Exception {String json=Files.readString(fixtures().resolve("atlas.json"));var buf=new RegistryFriendlyByteBuf(Unpooled.buffer(),RegistryAccess.EMPTY);try{SaturnAtlasClient.AtlasPayload.CODEC.encode(buf,new SaturnAtlasClient.AtlasPayload(json));byte[] encoded=new byte[buf.readableBytes()];buf.readBytes(encoded);assertArrayEquals(Files.readAllBytes(fixtures().resolve("atlas.bin")),encoded);}finally{buf.release();}}
+ @Test void actualRustCacheAndPresencePacketsDecodeWithoutNavigationRequests() throws Exception {
+  var model=new AtlasModel();
+  for(String name:new String[]{"atlas.bin","cache-begin.bin","cache-data.bin","players.bin"}){
+   var buf=new RegistryFriendlyByteBuf(Unpooled.wrappedBuffer(Files.readAllBytes(fixtures().resolve(name))),RegistryAccess.EMPTY);
+   try{model.receive(SaturnAtlasClient.AtlasPayload.CODEC.decode(buf).json(),100);assertEquals(0,buf.readableBytes());}finally{buf.release();}
+  }
+  assertEquals(AtlasModel.State.READY,model.state);assertFalse(model.cacheLoading);assertEquals(2,model.tilesAtZoom(1).size());assertEquals(2,model.tilesAtZoom(64).size());assertEquals("Café player",model.players(100).getFirst().name());assertTrue(model.players(5_000_000_101L).isEmpty());
+ }
 }

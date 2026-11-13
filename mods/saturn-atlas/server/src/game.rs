@@ -156,7 +156,12 @@ fn nearest_lodestone(p: &Player) -> Option<BlockPos> {
 fn register_lodestone(shared: &Shared, p: &Player, b: BlockPos) -> Result<Option<String>, String> {
     let world = world_key(&p.get_world());
     let mut r = lock(shared)?;
-    if r.store.state.atlas.anchor_at(&world, b.x, b.y, b.z).is_some() {
+    if r.store
+        .state
+        .atlas
+        .anchor_at(&world, b.x, b.y, b.z)
+        .is_some()
+    {
         return Ok(None);
     }
     if r.store.state.atlas.anchors.len() >= 256 {
@@ -407,11 +412,25 @@ impl CommandHandler for Cmd {
             sender.send_message(TextComponent::text(&text));return Ok(1);
         }
         if self.kind && words.trim() == "diagnostics" && sender.is_console() {
-            let r = lock(&self.shared).map_err(|e| CommandError::CommandFailed(TextComponent::text(&e)))?;
+            let r = lock(&self.shared)
+                .map_err(|e| CommandError::CommandFailed(TextComponent::text(&e)))?;
             for p in server.get_all_players() {
                 let at = position(&p);
-                let known = r.store.state.tiles.values().filter(|t|t.world == at.world).count();
-                let nearest = r.store.state.atlas.anchors.values().filter_map(|a|a.position.distance(&at)).fold(f64::INFINITY,f64::min);
+                let known = r
+                    .store
+                    .state
+                    .tiles
+                    .values()
+                    .filter(|t| t.world == at.world)
+                    .count();
+                let nearest = r
+                    .store
+                    .state
+                    .atlas
+                    .anchors
+                    .values()
+                    .filter_map(|a| a.position.distance(&at))
+                    .fold(f64::INFINITY, f64::min);
                 sender.send_message(TextComponent::text(&format!("ATLAS_PLAYER name={} world={} shared_tiles={} nearest_anchor={:.1} origin_valid={}",p.get_name(),at.world,known,nearest,origin(&r.store.state.atlas,&p).is_some())));
             }
             return Ok(1);
@@ -486,6 +505,11 @@ fn atlas_command(shared: &Shared, p: &Player, args: &str) -> Result<String, Stri
         // A bare sync is the closest view; `sync <zoom>` asks for a wider one.
         // `sync <zoom> <x> <z>` looks at another part of the shared map.
         "sync" => {
+            if sub == "cache" {
+                lock(shared)?.centers.remove(&id);
+                sync_companion(shared, p, Some(1))?;
+                return send_shared_cache(shared, p);
+            }
             match explore::parse_center(rest) {
                 Some(c) => lock(shared)?.centers.insert(id, c),
                 None => lock(shared)?.centers.remove(&id),
@@ -833,13 +857,21 @@ impl EventHandler<BlockPlaceEvent> for Placed {
         let (id, b, shared) = (e.player.get_id(), e.block_pos, self.shared.clone());
         // The event fires before the block exists; register once it is really there.
         pumpkin_plugin_api::scheduler::schedule_delayed_task(2, move |server| {
-            let Some(p) = server.get_player_by_uuid(id) else { return };
+            let Some(p) = server.get_player_by_uuid(id) else {
+                return;
+            };
             if !is_lodestone(&p.get_world().get_block_state(b).block_name) {
                 return;
             }
             match register_lodestone(&shared, &p, b) {
                 Ok(Some(name)) => {
-                    tell(&p, "notice", &format!("Lodestone \"{name}\" added to the map for all players. Right-click it to rename."));
+                    tell(
+                        &p,
+                        "notice",
+                        &format!(
+                            "Lodestone \"{name}\" added to the map for all players. Right-click it to rename."
+                        ),
+                    );
                     let _ = sync_companion(&shared, &p, None);
                 }
                 Ok(None) => {}
@@ -896,7 +928,11 @@ impl EventHandler<BlockBreakEvent> for Broken {
             }
             drop(r);
             if let Some(p) = breaker.and_then(|id| server.get_player_by_uuid(id)) {
-                tell(&p, "notice", &format!("Lodestone waypoint \"{}\" removed.", gone[0].1));
+                tell(
+                    &p,
+                    "notice",
+                    &format!("Lodestone waypoint \"{}\" removed.", gone[0].1),
+                );
                 let _ = sync_companion(&shared, &p, None);
             }
         });
@@ -910,25 +946,44 @@ struct Touched {
 impl EventHandler<PlayerInteractEvent> for Touched {
     fn handle(&self, _: Server, mut e: PlayerInteractEventData) -> PlayerInteractEventData {
         let Some(b) = e.clicked_pos else { return e };
-        if e.cancelled || !matches!(e.action, InteractAction::RightClickBlock) || !is_lodestone(&e.block) {
+        if e.cancelled
+            || !matches!(e.action, InteractAction::RightClickBlock)
+            || !is_lodestone(&e.block)
+        {
             return e;
         }
         let p = &e.player;
         // Leave vanilla compass binding alone.
         let inv = p.get_inventory();
-        for hand in [pumpkin_plugin_api::common::Hand::Right, pumpkin_plugin_api::common::Hand::Left] {
-            if inv.get_item_in_hand(hand).is_some_and(|s| s.get_registry_key() == "minecraft:compass") {
+        for hand in [
+            pumpkin_plugin_api::common::Hand::Right,
+            pumpkin_plugin_api::common::Hand::Left,
+        ] {
+            if inv
+                .get_item_in_hand(hand)
+                .is_some_and(|s| s.get_registry_key() == "minecraft:compass")
+            {
                 return e;
             }
         }
         let (id, world) = (pid(p), world_key(&p.get_world()));
         let found = lock(&self.shared).ok().and_then(|r| {
-            r.store.state.atlas.anchor_at(&world, b.x, b.y, b.z).map(|a| (a.id.clone(), a.name.clone(), a.owner.clone()))
+            r.store
+                .state
+                .atlas
+                .anchor_at(&world, b.x, b.y, b.z)
+                .map(|a| (a.id.clone(), a.name.clone(), a.owner.clone()))
         });
         match found {
             None => match register_lodestone(&self.shared, p, b) {
                 Ok(Some(name)) => {
-                    tell(p, "notice", &format!("Lodestone \"{name}\" added to the map for all players. Right-click it again to rename."));
+                    tell(
+                        p,
+                        "notice",
+                        &format!(
+                            "Lodestone \"{name}\" added to the map for all players. Right-click it again to rename."
+                        ),
+                    );
                     let _ = sync_companion(&self.shared, p, None);
                     e.cancelled = true;
                 }
@@ -938,16 +993,29 @@ impl EventHandler<PlayerInteractEvent> for Touched {
             Some((key, name, owner)) if owner == id => {
                 if let Ok(mut r) = lock(&self.shared) {
                     // Both hands can report the same click; ask once.
-                    let asked = r.renames.get(&id).is_some_and(|(k, until)| *k == key && *until > now() + 29_000);
+                    let asked = r
+                        .renames
+                        .get(&id)
+                        .is_some_and(|(k, until)| *k == key && *until > now() + 29_000);
                     r.renames.insert(id, (key, now() + 30_000));
                     drop(r);
                     if !asked {
-                        tell(p, "notice", &format!("Type a new name for \"{name}\" in chat within 30 seconds, or type cancel."));
+                        tell(
+                            p,
+                            "notice",
+                            &format!(
+                                "Type a new name for \"{name}\" in chat within 30 seconds, or type cancel."
+                            ),
+                        );
                     }
                 }
                 e.cancelled = true;
             }
-            Some((_, name, _)) => tell(p, "notice", &format!("\"{name}\" belongs to another player.")),
+            Some((_, name, _)) => tell(
+                p,
+                "notice",
+                &format!("\"{name}\" belongs to another player."),
+            ),
         }
         e
     }
@@ -962,8 +1030,12 @@ impl EventHandler<PlayerChatEvent> for Named {
             return e;
         }
         let id = pid(&e.player);
-        let Ok(mut r) = lock(&self.shared) else { return e };
-        let Some((key, until)) = r.renames.remove(&id) else { return e };
+        let Ok(mut r) = lock(&self.shared) else {
+            return e;
+        };
+        let Some((key, until)) = r.renames.remove(&id) else {
+            return e;
+        };
         if until < now() {
             return e;
         }
@@ -975,7 +1047,13 @@ impl EventHandler<PlayerChatEvent> for Named {
             return e;
         }
         let result = clean_name(&text).and_then(|name| {
-            let a = r.store.state.atlas.anchors.get_mut(&key).ok_or("That lodestone is no longer a waypoint")?;
+            let a = r
+                .store
+                .state
+                .atlas
+                .anchors
+                .get_mut(&key)
+                .ok_or("That lodestone is no longer a waypoint")?;
             a.name = name.clone();
             r.store.save()?;
             Ok(name)
@@ -983,10 +1061,18 @@ impl EventHandler<PlayerChatEvent> for Named {
         drop(r);
         match result {
             Ok(name) => {
-                tell(&e.player, "notice", &format!("Lodestone renamed to \"{name}\"."));
+                tell(
+                    &e.player,
+                    "notice",
+                    &format!("Lodestone renamed to \"{name}\"."),
+                );
                 let _ = sync_companion(&self.shared, &e.player, None);
             }
-            Err(message) => tell(&e.player, "error", &format!("{message}. Right-click the lodestone to try again.")),
+            Err(message) => tell(
+                &e.player,
+                "error",
+                &format!("{message}. Right-click the lodestone to try again."),
+            ),
         }
         e
     }
@@ -1035,7 +1121,7 @@ impl EventHandler<PlayerJoinEvent> for JoinSnapshot {
                     if let Ok(mut r) = shared.lock() {
                         r.centers.remove(&uuid::to_string(id));
                     }
-                    let _ = sync_companion(&shared, &p, Some(1));
+                    // No automatic map refresh on join; the client requests on open.
                 }
             }
         });
@@ -1067,10 +1153,34 @@ pub fn setup(context: &Context, shared: Shared) -> Result<(), String> {
         let cmd = cmd.then(arg);
         context.register_command(cmd, "saturn-atlas:command.use");
     }
-    context.register_event_handler(Placed { shared: shared.clone() }, EventPriority::Normal, true)?;
-    context.register_event_handler(Broken { shared: shared.clone() }, EventPriority::Normal, true)?;
-    context.register_event_handler(Touched { shared: shared.clone() }, EventPriority::Normal, true)?;
-    context.register_event_handler(Named { shared: shared.clone() }, EventPriority::Normal, true)?;
+    context.register_event_handler(
+        Placed {
+            shared: shared.clone(),
+        },
+        EventPriority::Normal,
+        true,
+    )?;
+    context.register_event_handler(
+        Broken {
+            shared: shared.clone(),
+        },
+        EventPriority::Normal,
+        true,
+    )?;
+    context.register_event_handler(
+        Touched {
+            shared: shared.clone(),
+        },
+        EventPriority::Normal,
+        true,
+    )?;
+    context.register_event_handler(
+        Named {
+            shared: shared.clone(),
+        },
+        EventPriority::Normal,
+        true,
+    )?;
     context.register_event_handler(
         Chunks {
             shared: shared.clone(),
@@ -1158,8 +1268,7 @@ pub fn setup(context: &Context, shared: Shared) -> Result<(), String> {
             for tile in tiles {
                 let name = format!("{}:{}:{}", tile.world, tile.x, tile.z);
                 // At capacity, known chunks still refresh; only new ones are refused.
-                if r.store.state.tiles.len() < MAX_CHUNKS
-                    || r.store.state.tiles.contains_key(&name)
+                if r.store.state.tiles.len() < MAX_CHUNKS || r.store.state.tiles.contains_key(&name)
                 {
                     r.queue.forget(&(tile.world.clone(), tile.x, tile.z));
                     r.store
@@ -1174,7 +1283,24 @@ pub fn setup(context: &Context, shared: Shared) -> Result<(), String> {
         if runs.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 4 != 3 {
             return;
         }
+        // Presence is server-pushed once per second, with no client commands or terrain refresh.
+        let roster: Vec<_> = players
+            .iter()
+            .map(|p| {
+                let (x, _, z) = p.get_position();
+                (pid(p), p.get_name(), world_key(&p.get_world()), x, z)
+            })
+            .collect();
         for p in players {
+            if let Some(java) = p.as_java() {
+                if let Ok(bytes) = saturn_atlas_core::protocol::player_roster(
+                    &world_key(&p.get_world()),
+                    &pid(&p),
+                    &roster,
+                ) {
+                    java.send_custom_payload("saturn:atlas_v1", &bytes);
+                }
+            }
             let has = p
                 .get_inventory()
                 .as_inventory()
@@ -1229,27 +1355,35 @@ fn sync_companion(shared: &Shared, p: &Player, requested: Option<u32>) -> Result
     if zoom >= 8 {
         // Aggregate actual shared records rather than sampling five positions that can miss
         // another player's entire explored trail at wide zoom. No player-ID filter here.
-        let overview = explore::shared_overview(zoom, cx, cz,
-            r.store.state.tiles.values().filter(|t| t.world == at.world)
-                .map(|t| (t.x, t.z, t.pixels.as_slice())));
+        let overview = explore::shared_overview(
+            zoom,
+            cx,
+            cz,
+            r.store
+                .state
+                .tiles
+                .values()
+                .filter(|t| t.world == at.world)
+                .map(|t| (t.x, t.z, t.pixels.as_slice())),
+        );
         for ((tx, tz), pixels) in overview {
             tiles.push(serde_json::json!({"world":at.world,"x":tx,"z":tz,"pixels":pixels}));
         }
     } else {
-    for tz in cz - explore::VIEW_RADIUS..=cz + explore::VIEW_RADIUS {
-        for tx in cx - explore::VIEW_RADIUS..=cx + explore::VIEW_RADIUS {
-            let pixels = explore::zoom_tile(zoom, tx, tz, |x, z| {
-                r.store
-                    .state
-                    .tiles
-                    .get(&format!("{}:{x}:{z}", at.world))
-                    .map(|t| &t.pixels[..])
-            });
-            if let Some(pixels) = pixels {
-                tiles.push(serde_json::json!({"world":at.world,"x":tx,"z":tz,"pixels":pixels}));
+        for tz in cz - explore::VIEW_RADIUS..=cz + explore::VIEW_RADIUS {
+            for tx in cx - explore::VIEW_RADIUS..=cx + explore::VIEW_RADIUS {
+                let pixels = explore::zoom_tile(zoom, tx, tz, |x, z| {
+                    r.store
+                        .state
+                        .tiles
+                        .get(&format!("{}:{x}:{z}", at.world))
+                        .map(|t| &t.pixels[..])
+                });
+                if let Some(pixels) = pixels {
+                    tiles.push(serde_json::json!({"world":at.world,"x":tx,"z":tz,"pixels":pixels}));
+                }
             }
         }
-    }
     }
     let anchors: Vec<_> = r
         .store
@@ -1297,4 +1431,40 @@ fn send_feedback(p: &Player, kind: &str, message: &str) {
         };
         java.send_custom_payload("saturn:atlas_v1", &bytes);
     }
+}
+
+/// One explicit request streams a bounded, atomic cache; zoom/pan need no commands.
+fn send_shared_cache(shared: &Shared, p: &Player) -> Result<String, String> {
+    let java = p.as_java().ok_or("Companion protocol is Java-only")?;
+    let world = world_key(&p.get_world());
+    let (token, tiles) = {
+        let mut r = lock(shared)?;
+        r.serial += 1;
+        (
+            r.serial.to_string(),
+            r.store
+                .state
+                .tiles
+                .values()
+                .filter(|t| t.world == world)
+                .cloned()
+                .collect::<Vec<_>>(),
+        )
+    };
+    let begin = saturn_atlas_core::protocol::cache_begin(&world, &token, tiles.len())
+        .map_err(str::to_string)?;
+    java.send_custom_payload("saturn:atlas_v1", &begin);
+    for (batch, part) in tiles
+        .chunks(saturn_atlas_core::protocol::CACHE_BATCH)
+        .enumerate()
+    {
+        let data: Vec<_> = part
+            .iter()
+            .map(|t| (t.x, t.z, t.pixels.as_slice()))
+            .collect();
+        let bytes = saturn_atlas_core::protocol::cache_batch(&world, &token, batch, &data)
+            .map_err(str::to_string)?;
+        java.send_custom_payload("saturn:atlas_v1", &bytes);
+    }
+    Ok("Shared map cached".into())
 }

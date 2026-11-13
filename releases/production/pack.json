@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "packId": "saturn",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "minecraft": "26.3",
   "fabricLoader": "0.20.1",
   "mods": [
@@ -17,13 +17,13 @@
     {
       "id": "saturn_atlas",
       "repo": "Zigdon7/MooreMinecraft",
-      "tag": "v0.2.0",
-      "asset": "saturn-atlas-companion-0.2.0.jar",
-      "sha256": "6889530414b1bf12fc0a546220fe5b9fb9ecd68c45c8e602d79abeae6d345af6",
-      "size": 52898,
-      "version": "0.2.0"
+      "tag": "atlas-v0.2.3",
+      "asset": "saturn-atlas-companion-0.2.1.jar",
+      "sha256": "23bf630f2ad1ff7aea33941fe372311f365a04b0d29fe66a7e7a55c2d0a5008e",
+      "size": 57875,
+      "version": "0.2.1"
     }
   ],
-  "serverPluginVersion": "0.2.0",
+  "serverPluginVersion": "0.2.3",
   "channel": "production"
 }
