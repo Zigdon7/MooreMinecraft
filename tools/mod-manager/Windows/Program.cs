@@ -550,25 +550,25 @@ sealed class ManagerForm : Form
     {
         string name = args.SkipWhile(a => a != "--ui-preview").Skip(1).FirstOrDefault() ?? "initial";
         profile.Text = args.Contains("--long-values") ? @"C:\Users\Player\Documents\Minecraft profiles\Saturn staging accessibility review\Instances\Long named Fabric profile for shared Atlas testing" : @"C:\Users\Player\AppData\Roaming\.minecraft";
-        var atlas = new ModSpec("saturn_atlas", "Zigdon7/MooreMinecraft", "staging-v0.1.3", "saturn-atlas-companion-0.1.3.jar", new string('a', 64), 163840);
-        var api = new ModSpec("fabric-api", "Zigdon7/MooreMinecraft", "staging-v0.1.3", "fabric-api-0.165.2+26.3.jar", new string('b', 64), 1779306);
-        string latest = args.Contains("--long-values") ? "0.1.3-preview-accessibility-long-label" : "0.1.3-preview";
-        record = new("saturn", "0.1.2", [new("saturn_atlas", "saturn-atlas-companion-0.1.2.jar", new string('c', 64)), new("fabric-api", api.Asset, api.Sha256)]);
+        var atlas = new ModSpec("saturn_atlas", "Zigdon7/MooreMinecraft", "v0.2.0", "saturn-atlas-companion-0.2.0.jar", new string('a', 64), 163840, "0.2.0");
+        var api = new ModSpec("fabric-api", "Zigdon7/MooreMinecraft", "staging-v0.1.3", "fabric-api-0.165.2+26.3.jar", new string('b', 64), 1779306, "0.165.2+26.3");
+        string latest = args.Contains("--long-values") ? "0.1.3-preview-accessibility-long-label" : "0.2.0";
+        record = new("saturn", "0.1.9", [new("saturn_atlas", "saturn-atlas-companion-0.1.9.jar", new string('c', 64), "0.1.9"), new("fabric-api", api.Asset, api.Sha256)]);
         if (name == "offline") checkFailed = true;
         else if (name != "initial")
         {
-            pack = new(1, "saturn", latest, "26.3", "0.20.1", [atlas, api]);
+            pack = new(1, "saturn", latest, "26.3", "0.20.1", [atlas, api], "0.2.0", "production");
             states = [(atlas, Compare.Update), (api, Compare.Current)];
         }
         string text = "Ready.";
         switch (name)
         {
-            case "checked": case "settings": case "activity": text = $"Update available: 0.1.2 → {latest}."; break;
+            case "checked": case "settings": case "activity": text = $"Update available: 0.1.9 → {latest}."; break;
             case "busy": busy = true; progress.Visible = true; text = $"Installing {latest}: downloading and verifying files…"; break;
             case "success": record = record with { Version = latest }; states = [(atlas, Compare.Current), (api, Compare.Current)]; text = $"Installed {latest}. Your other mods were not touched."; break;
             case "error": failedInstallation = true; text = "Setup did not finish. See Activity, then retry Install; completed mod downloads are retained."; break;
             case "offline": text = "Could not check for updates. Check your connection, then check again."; break;
-            case "manager": managerRelease = new("9.9.9", SelfUpdate.Asset, 52000000, new string('d', 64), "https://github.com/Zigdon7/MooreMinecraft/releases/download/preview/Saturn-Mod-Manager.exe"); text = $"Update available: 0.1.2 → {latest}."; break;
+            case "manager": managerRelease = new("9.9.9", SelfUpdate.Asset, 52000000, new string('d', 64), "https://github.com/Zigdon7/MooreMinecraft/releases/download/preview/Saturn-Mod-Manager.exe"); text = $"Update available: 0.1.9 → {latest}."; break;
         }
         status.Text = text; status.AccessibleDescription = text;
         output.Text = "12:00:01  Checking for updates…\r\n12:00:02  Checked 0.1.3-preview: 2 pinned, checksummed files.\r\n12:00:02  " + text + "\r\n";

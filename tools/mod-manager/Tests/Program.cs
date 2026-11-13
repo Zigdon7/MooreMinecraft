@@ -18,9 +18,10 @@ if(args.Length==2 && args[0]=="--launcher-smoke"){
  var pack=await remote.Fetch("https://raw.githubusercontent.com/Zigdon7/MooreMinecraft/main/releases/production/pack.json",CancellationToken.None);
  var setup=new LauncherSetup(client);var prepared=await setup.Fetch(pack,CancellationToken.None);
  string root=Path.GetFullPath(args[1]),game=Path.Combine(root,"higdon-server");
+ Directory.CreateDirectory(game);await new Installer(game,remote,Console.WriteLine).Install(pack);
  LauncherSetup.Apply(root,game,pack,prepared);
  if(!LauncherSetup.Ready(root,game,pack))throw new Exception("Launcher configuration not ready");
- Console.WriteLine("PASS live official Fabric metadata → isolated launcher profile configuration (not an actual game launch)");return;
+ Console.WriteLine("PASS live official Fabric metadata + public mod downloads → isolated launcher profile configuration (not an actual game launch)");return;
 }
 
 int passed=0,failed=0;var results=new List<string>();

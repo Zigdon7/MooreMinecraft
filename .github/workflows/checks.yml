@@ -44,6 +44,8 @@ jobs:
           dotnet-version: '10.0.x'
       - name: Updater transaction regression suite
         run: dotnet run --project tools/mod-manager/Tests/Saturn.Manager.Tests.csproj
+      - name: Live official Fabric metadata and public pack setup fixture
+        run: dotnet run --project tools/mod-manager/Tests/Saturn.Manager.Tests.csproj -- --launcher-smoke TestArtifacts/live-launcher-setup
       - name: Build portable Windows executable
         run: dotnet publish tools/mod-manager/Windows/Saturn.ModManager.csproj -c Release -r win-x64 --self-contained -o artifacts/manager
       - name: Native Windows startup smoke test
