@@ -384,3 +384,14 @@ pub fn world_identity(level: &str, dimension: &str) -> String {
         assert_ne!(world_identity("other", "minecraft:the_end"),world_identity("world", "minecraft:the_end"));
     }
 }
+
+/// Host block registry names may omit the vanilla namespace.
+pub fn vanilla_block(name: &str) -> &str { name.strip_prefix("minecraft:").unwrap_or(name) }
+#[cfg(test)] mod block_name_tests {
+    #[test] fn accepts_both_host_names_but_not_other_namespaces() {
+        assert_eq!(super::vanilla_block("lodestone"), "lodestone");
+        assert_eq!(super::vanilla_block("minecraft:lodestone"), "lodestone");
+        assert_ne!(super::vanilla_block("other:lodestone"), "lodestone");
+        assert_eq!(super::vanilla_block("minecraft:magma_block"), "magma_block");
+    }
+}

@@ -344,3 +344,45 @@ mod tests {
         assert!(near.contains(&key(100, 0)));
     }
 }
+
+/// Lossless explored-coverage overview at wide zoom: every known chunk contributes,
+/// regardless of which player explored it. Work is bounded by the stored records,
+/// not the (potentially enormous) area of an empty view. Input belongs to one world.
+pub fn shared_overview<'a>(zoom: u32, cx: i32, cz: i32,
+    chunks: impl IntoIterator<Item=(i32,i32,&'a [u8])>)
+    -> std::collections::BTreeMap<(i32,i32),Vec<u8>> {
+    let mut out = std::collections::BTreeMap::new();
+    let span = valid_zoom(zoom) as i32;
+    assert!(span >= 8, "overview requires wide zoom");
+    for (x,z,pixels) in chunks {
+        let (tx,tz)=(x.div_euclid(span),z.div_euclid(span));
+        if (tx-cx).abs()>VIEW_RADIUS || (tz-cz).abs()>VIEW_RADIUS { continue; }
+        let Some(colour)=pixels.get(10).copied().filter(|v|*v!=0)
+            .or_else(||pixels.iter().copied().find(|v|*v!=0)) else { continue; };
+        let index=(z.rem_euclid(span)*4/span*4+x.rem_euclid(span)*4/span) as usize;
+        let tile=out.entry((tx,tz)).or_insert_with(||vec![0;16]);
+        if tile[index]==0 { tile[index]=colour; }
+    }
+    out
+}
+#[cfg(test)] mod shared_overview_tests {
+    use super::*;
+    #[test] fn all_thin_trails_survive_wide_zoom_and_share_one_view() {
+        let colour=vec![6;16];
+        // Every possible known chunk, including those missed by old centre/quarter sampling.
+        for zoom in [8,16,32,64] {
+            for x in 0..zoom as i32 { for z in 0..zoom as i32 {
+                let map=shared_overview(zoom,0,0,[(x,z,&colour[..])]);
+                assert!(map[&(0,0)].iter().any(|v|*v==6));
+            }}
+        }
+        let map=shared_overview(64,0,0,[(-81,67,&colour[..]),(-52,-42,&colour[..])]);
+        assert_eq!(map.len(),2,"both players' separated contributions are included");
+        assert_eq!(map,shared_overview(64,0,0,[(-52,-42,&colour[..]),(-81,67,&colour[..])]),"separate contributions do not depend on which player is processed first");
+    }
+    #[test] fn respects_negative_coordinates_bounds_and_unknown_pixels() {
+        let c=vec![42;16];let blank=vec![0;16];
+        let map=shared_overview(8,0,0,[(-1,-1,&c[..]),(1000,1000,&c[..]),(0,0,&blank[..])]);
+        assert_eq!(map.len(),1);assert_eq!(map[&(-1,-1)][15],42);
+    }
+}

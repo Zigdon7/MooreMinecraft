@@ -114,7 +114,7 @@ fn anchor_block(p: &Player) -> Result<(BlockPos, Position), String> {
     Ok((near, standing_spot(&world_key(&p.get_world()), near)))
 }
 fn is_lodestone(name: &str) -> bool {
-    name == "minecraft:lodestone" || name == "lodestone"
+    saturn_atlas_core::vanilla_block(name) == "lodestone"
 }
 /// Where a traveller stands: centred on top of the lodestone block.
 fn standing_spot(world: &str, b: BlockPos) -> Position {
@@ -202,7 +202,7 @@ fn exists(p: &Player, a: &Anchor) -> bool {
     };
     w.get_chunk(b.x.div_euclid(16), b.z.div_euclid(16))
         .is_some()
-        && w.get_block_state(b).block_name == "minecraft:lodestone"
+        && is_lodestone(&w.get_block_state(b).block_name)
 }
 fn balance(p: &Player) -> u32 {
     p.get_inventory()
@@ -240,17 +240,17 @@ fn safe_landing(p: &Player, a: &Anchor) -> Result<(f64, f64, f64), String> {
             z: at.z,
         });
         let hazards = [
-            "minecraft:magma_block",
-            "minecraft:campfire",
-            "minecraft:soul_campfire",
-            "minecraft:cactus",
-            "minecraft:sweet_berry_bush",
+            "magma_block",
+            "campfire",
+            "soul_campfire",
+            "cactus",
+            "sweet_berry_bush",
         ];
         if feet.is_air
             && head.is_air
             && floor.is_full_cube
             && floor.is_solid
-            && !hazards.contains(&floor.block_name.as_str())
+            && !hazards.contains(&saturn_atlas_core::vanilla_block(&floor.block_name))
             && w.get_border()
                 .contains(at.x as f64 + 0.5, at.z as f64 + 0.5)
         {
@@ -375,13 +375,23 @@ impl CommandHandler for Cmd {
     fn handle(
         &self,
         sender: CommandSender,
-        _server: Server,
+        server: Server,
         args: ConsumedArgs,
     ) -> Result<i32, CommandError> {
         let words = match args.get_value("args") {
             Arg::Simple(s) | Arg::Msg(s) => s,
             _ => String::new(),
         };
+        if self.kind && words.trim() == "diagnostics" && sender.is_console() {
+            let r = lock(&self.shared).map_err(|e| CommandError::CommandFailed(TextComponent::text(&e)))?;
+            for p in server.get_all_players() {
+                let at = position(&p);
+                let known = r.store.state.tiles.values().filter(|t|t.world == at.world).count();
+                let nearest = r.store.state.atlas.anchors.values().filter_map(|a|a.position.distance(&at)).fold(f64::INFINITY,f64::min);
+                sender.send_message(TextComponent::text(&format!("ATLAS_PLAYER name={} world={} shared_tiles={} nearest_anchor={:.1} origin_valid={}",p.get_name(),at.world,known,nearest,origin(&r.store.state.atlas,&p).is_some())));
+            }
+            return Ok(1);
+        }
         if self.kind && words.trim() == "health" && sender.is_console() {
             let r = lock(&self.shared)
                 .map_err(|e| CommandError::CommandFailed(TextComponent::text(&e)))?;
@@ -1176,6 +1186,16 @@ fn sync_companion(shared: &Shared, p: &Player, requested: Option<u32>) -> Result
         .unwrap_or((at.x.floor() as i32, at.z.floor() as i32));
     let (cx, cz) = explore::center_tile(zoom, view_x, view_z);
     let mut tiles = vec![];
+    if zoom >= 8 {
+        // Aggregate actual shared records rather than sampling five positions that can miss
+        // another player's entire explored trail at wide zoom. No player-ID filter here.
+        let overview = explore::shared_overview(zoom, cx, cz,
+            r.store.state.tiles.values().filter(|t| t.world == at.world)
+                .map(|t| (t.x, t.z, t.pixels.as_slice())));
+        for ((tx, tz), pixels) in overview {
+            tiles.push(serde_json::json!({"world":at.world,"x":tx,"z":tz,"pixels":pixels}));
+        }
+    } else {
     for tz in cz - explore::VIEW_RADIUS..=cz + explore::VIEW_RADIUS {
         for tx in cx - explore::VIEW_RADIUS..=cx + explore::VIEW_RADIUS {
             let pixels = explore::zoom_tile(zoom, tx, tz, |x, z| {
@@ -1189,6 +1209,7 @@ fn sync_companion(shared: &Shared, p: &Player, requested: Option<u32>) -> Result
                 tiles.push(serde_json::json!({"world":at.world,"x":tx,"z":tz,"pixels":pixels}));
             }
         }
+    }
     }
     let anchors: Vec<_> = r
         .store
