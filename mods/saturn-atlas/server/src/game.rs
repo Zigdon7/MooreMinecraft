@@ -61,6 +61,7 @@ pub struct Runtime {
     pub centers: BTreeMap<String, (i32, i32)>,
     /// Players asked to type a new lodestone name in chat: player -> (anchor id, expiry ms).
     pub renames: BTreeMap<String, (String, u64)>,
+    pub cache_clients: BTreeSet<String>,
     pub serial: u64,
     pub dirty: bool,
 }
@@ -506,7 +507,7 @@ fn atlas_command(shared: &Shared, p: &Player, args: &str) -> Result<String, Stri
         // `sync <zoom> <x> <z>` looks at another part of the shared map.
         "sync" => {
             if sub == "cache" {
-                lock(shared)?.centers.remove(&id);
+                {let mut r=lock(shared)?;r.centers.remove(&id);r.cache_clients.insert(id.clone());}
                 sync_companion(shared, p, Some(1))?;
                 return send_shared_cache(shared, p);
             }
@@ -1113,21 +1114,12 @@ struct JoinSnapshot {
 }
 impl EventHandler<PlayerJoinEvent> for JoinSnapshot {
     fn handle(&self, _: Server, event: PlayerJoinEventData) -> PlayerJoinEventData {
-        let id = event.player.get_id();
-        let shared = self.shared.clone();
-        pumpkin_plugin_api::scheduler::schedule_delayed_task(20, move |server| {
-            if let Some(p) = server.get_player_by_uuid(id) {
-                if p.as_java().is_some() {
-                    if let Ok(mut r) = shared.lock() {
-                        r.centers.remove(&uuid::to_string(id));
-                    }
-                    // No automatic map refresh on join; the client requests on open.
-                }
-            }
-        });
+        if let Ok(mut r)=self.shared.lock(){let id=pid(&event.player);r.centers.remove(&id);r.cache_clients.remove(&id);}
+        // No automatic terrain refresh; a new client's cache request opts into presence packets.
         event
     }
 }
+
 pub fn setup(context: &Context, shared: Shared) -> Result<(), String> {
     context.register_event_handler(
         JoinSnapshot {
@@ -1291,8 +1283,9 @@ pub fn setup(context: &Context, shared: Shared) -> Result<(), String> {
                 (pid(p), p.get_name(), world_key(&p.get_world()), x, z)
             })
             .collect();
+        let subscribers=match shared.lock(){Ok(r)=>r.cache_clients.clone(),Err(_)=>return};
         for p in players {
-            if let Some(java) = p.as_java() {
+            if let Some(java) = p.as_java().filter(|_|subscribers.contains(&pid(&p))) {
                 if let Ok(bytes) = saturn_atlas_core::protocol::player_roster(
                     &world_key(&p.get_world()),
                     &pid(&p),

@@ -99,6 +99,7 @@ impl Plugin for SaturnAtlas {
             zooms: Default::default(),
             centers: Default::default(),
             renames: Default::default(),
+            cache_clients: Default::default(),
             serial: 0,
             dirty: false,
         }));
