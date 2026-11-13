@@ -74,7 +74,7 @@ foreach ($case in $cases) {
   }
   foreach ($name in @("Mods page", "Settings page", "Activity page", "Update status")) { $null = Shown $name }
   if ($case.name -eq "settings") {
-   foreach ($name in @("Minecraft game folder", "Browse for Minecraft game folder", "Advanced pack manifest URL")) { $null = Shown $name }
+   foreach ($name in @("Minecraft game folder", "Browse for Minecraft game folder", "Advanced pack manifest URL", "Atlas release channel")) { $null = Shown $name }
   } elseif ($case.name -eq "activity") {
    $null = Shown "Activity log"
   } else {

@@ -2,14 +2,14 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 namespace Saturn.Manager;
-/// <summary>The manager's own pinned release, as published in the staging components feed.</summary>
+/// <summary>The manager's own pinned release, as published in the production components feed.</summary>
 public sealed record ManagerRelease(string Version,string Asset,long Size,string Sha256,string Download);
 /// <summary>
 /// Replaces the manager's own executable. This is the only executable the manager ever installs.
 /// The feed address and repository are fixed here: a pack manifest or a setting cannot redirect them.
 /// </summary>
 public static class SelfUpdate{
- public const string Feed="https://raw.githubusercontent.com/Zigdon7/MooreMinecraft/main/releases/staging/components.json";
+ public const string Feed="https://raw.githubusercontent.com/Zigdon7/MooreMinecraft/main/releases/production/components.json";
  public const string Asset="Saturn-Mod-Manager.exe";
  const string Releases="/Zigdon7/MooreMinecraft/releases/download/";
  /// <summary>The manager entry of the feed, or null when the feed lists none.</summary>

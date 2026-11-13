@@ -13,6 +13,16 @@ if(args.Length==4 && args[0]=="--manifest" && args[2]=="--profile"){
  Console.WriteLine("PASS public-release install rollback");return;
 }
 
+if(args.Length==2 && args[0]=="--launcher-smoke"){
+ using var client = new HttpClient(); using var remote = new GitHubSource();
+ var pack=await remote.Fetch("https://raw.githubusercontent.com/Zigdon7/MooreMinecraft/main/releases/production/pack.json",CancellationToken.None);
+ var setup=new LauncherSetup(client);var prepared=await setup.Fetch(pack,CancellationToken.None);
+ string root=Path.GetFullPath(args[1]),game=Path.Combine(root,"higdon-server");
+ LauncherSetup.Apply(root,game,pack,prepared);
+ if(!LauncherSetup.Ready(root,game,pack))throw new Exception("Launcher configuration not ready");
+ Console.WriteLine("PASS live official Fabric metadata → isolated launcher profile configuration (not an actual game launch)");return;
+}
+
 int passed=0,failed=0;var results=new List<string>();
 async Task Test(string name,Func<Task> run){try{await run();passed++;results.Add("PASS "+name);Console.WriteLine("PASS "+name);}catch(Exception e){failed++;results.Add("FAIL "+name+": "+e);Console.WriteLine("FAIL "+name+": "+e.Message);}}
 void Assert(bool value,string message="Assertion failed"){if(!value)throw new Exception(message);}
@@ -49,6 +59,74 @@ await Test("manager release from another host, repository, file or channel is re
 await Test("manager download must match the pinned size and hash before replacing anything",async()=>{string dir=Root();byte[] good=new byte[1500000];good[0]=(byte)'M';good[1]=(byte)'Z';good[77]=9;string hash=Convert.ToHexStringLower(SHA256.HashData(good));var r=Read(Feed(Entry(size:good.Length,hash:hash)))!;string file=Path.Combine(dir,"new.exe");File.WriteAllBytes(file,good);SelfUpdate.Verify(file,r);var flipped=(byte[])good.Clone();flipped[^1]^=1;File.WriteAllBytes(file,flipped);await Throws(()=>{SelfUpdate.Verify(file,r);return Done();});File.WriteAllBytes(file,good.Take(good.Length-1).ToArray());await Throws(()=>{SelfUpdate.Verify(file,r);return Done();});byte[] text=new byte[1500000];File.WriteAllBytes(file,text);await Throws(()=>{SelfUpdate.Verify(file,r with{Sha256=Convert.ToHexStringLower(SHA256.HashData(text))});return Done();});});
 await Test("manager swap replaces the program, keeps the old one, and undoes a failed swap",async()=>{string dir=Root();string exe=Path.Combine(dir,"Saturn-Mod-Manager.exe");File.WriteAllText(exe,"old");File.WriteAllText(exe+".new","new");File.WriteAllText(exe+".old","stale");SelfUpdate.Swap(exe,exe+".new");Assert(File.ReadAllText(exe)=="new"&&File.ReadAllText(exe+".old")=="old"&&!File.Exists(exe+".new"));SelfUpdate.Cleanup(exe);Assert(File.Exists(exe)&&!File.Exists(exe+".old"));await Throws(()=>{SelfUpdate.Swap(exe,exe+".new");return Done();});Assert(File.ReadAllText(exe)=="new","a failed swap leaves the working program in place");});
 
+
+System.Text.Json.Nodes.JsonObject Fabric(PackManifest p)=>System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(new {id=$"higdon-fabric-loader-{p.FabricLoader}-{p.Minecraft}",inheritsFrom=p.Minecraft,mainClass="net.fabricmc.loader.impl.launch.knot.KnotClient",libraries=new[]{new{name="net.fabricmc:fabric-loader:"+p.FabricLoader,url="https://maven.fabricmc.net/"}}}))!.AsObject();
+await Test("launcher setup preserves unrelated profiles/accounts, isolates mods and is idempotent",async()=>{
+ string root=Root(),game=Path.Combine(root,"higdon-server");var pack=Pack("0.2.0",Spec("saturn_atlas","atlas.jar",Jar("saturn_atlas","one")));
+ string file=Path.Combine(root,"launcher_profiles.json");
+ File.WriteAllText(file,"{\"profiles\":{\"vanilla\":{\"name\":\"Keep me\",\"lastVersionId\":\"26.3\"}},\"settings\":{\"keep\":true},\"authenticationDatabase\":{\"fixture\":{\"keep\":true}}}");
+ var before=System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(file))!;
+ Assert(!LauncherSetup.Ready(root,game,pack));LauncherSetup.Apply(root,game,pack,Fabric(pack));LauncherSetup.Apply(root,game,pack,Fabric(pack));
+ var after=System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(file))!;
+ foreach(string key in new[]{"settings","authenticationDatabase"})Assert(System.Text.Json.Nodes.JsonNode.DeepEquals(before[key],after[key]),key+" changed");
+ Assert(System.Text.Json.Nodes.JsonNode.DeepEquals(before["profiles"]!["vanilla"],after["profiles"]!["vanilla"]));
+ Assert(after["profiles"]!.AsObject().Count==2&&LauncherSetup.Ready(root,game,pack));
+ Assert(after["profiles"]![LauncherSetup.ProfileKey]!["gameDir"]!.GetValue<string>()==game);
+ Assert(Directory.GetFiles(root,"*.higdon-backup-*").Length==2);await Done();
+});
+await Test("launcher handles Microsoft Store profile file and Loader upgrades independently of mods",async()=>{
+ string root=Root(),game=Path.Combine(root,"isolated");var p=Pack("0.2.0",Spec("saturn_atlas","atlas.jar",Jar("saturn_atlas","one")));
+ string store=Path.Combine(root,"launcher_profiles_microsoft_store.json");File.WriteAllText(store,"{\"profiles\":{}}");
+ LauncherSetup.Apply(root,game,p,Fabric(p));Assert(LauncherSetup.Ready(root,game,p));
+ var next=p with{FabricLoader="0.20.2"};Assert(!LauncherSetup.Ready(root,game,next));LauncherSetup.Apply(root,game,next,Fabric(next));Assert(LauncherSetup.Ready(root,game,next));
+ Assert(!File.Exists(Path.Combine(root,"launcher_profiles.json")),"created wrong launcher config");await Done();
+});
+await Test("malformed or locked launcher profiles are not overwritten",async()=>{
+ var p=Pack("0.2.0",Spec("saturn_atlas","atlas.jar",Jar("saturn_atlas","one")));string root=Root(),game=Path.Combine(root,"game");string f=Path.Combine(root,"launcher_profiles.json");File.WriteAllText(f,"broken");
+ await Throws(()=>{LauncherSetup.Apply(root,game,p,Fabric(p));return Done();});Assert(File.ReadAllText(f)=="broken");
+ File.WriteAllText(f,"{\"profiles\":{}}");using(var held=new FileStream(f,FileMode.Open,FileAccess.ReadWrite,FileShare.None))await Throws(()=>{LauncherSetup.Apply(root,game,p,Fabric(p));return Done();});Assert(File.ReadAllText(f)=="{\"profiles\":{}}");
+});
+await Test("launcher setup refuses symlinked game folders and invalid version paths",async()=>{
+ var p=Pack("0.2.0",Spec("saturn_atlas","atlas.jar",Jar("saturn_atlas","one")));string root=Root();string linked=Path.Combine(root,"linked");
+ if(!OperatingSystem.IsWindows()){Directory.CreateSymbolicLink(linked,Root());await Throws(()=>{LauncherSetup.Apply(root,linked,p,Fabric(p));return Done();});}
+ await Throws(()=>{LauncherSetup.Apply(root,root,p with{Minecraft="../elsewhere"},Fabric(p));return Done();});
+});
+await Test("Fabric metadata must match exact requested Minecraft and Loader versions",async()=>{
+ var p=Pack("0.2.0",Spec("saturn_atlas","atlas.jar",Jar("saturn_atlas","one")));
+ var official=Fabric(p);official["id"]=$"fabric-loader-{p.FabricLoader}-{p.Minecraft}";
+ using var client=new HttpClient(new MetadataHandler(official.ToJsonString()));var prepared=await new LauncherSetup(client).Fetch(p,CancellationToken.None);
+ Assert(prepared["id"]!.GetValue<string>().StartsWith("higdon-fabric-loader-"));
+ using var bad=new HttpClient(new MetadataHandler(official.ToJsonString().Replace("26.3","26.2")));await Throws(async()=>{await new LauncherSetup(bad).Fetch(p,CancellationToken.None);});
+});
+await Test("per-plugin versions persist, update independently and retain legacy compatibility",async()=>{
+ string root=Root();var a=Jar("saturn_atlas","one");var api=Jar("fabric-api","api");var sa=Spec("saturn_atlas","atlas-1.jar",a) with{Version="0.2.0"};var sf=Spec("fabric-api","api.jar",api) with{Version="0.165.2+26.3"};
+ var pack=Pack("0.2.0",sa,sf) with{ServerPluginVersion="0.2.0"};var installer=new Installer(root,new Multi(new(){[sa.Asset]=a,[sf.Asset]=api}));await installer.Install(pack);
+ var record=Rules.Read<Installed>(Path.Combine(root,".saturn-manager","installed.json"));Assert(record.Files.Single(f=>f.Id==sa.Id).Version=="0.2.0");
+ var b=Jar("saturn_atlas","two");var sb=Spec("saturn_atlas","atlas-2.jar",b) with{Version="0.2.1"};var next=Pack("0.2.1",sb,sf);
+ var states=Compare.Mods(root,next,record);Assert(states[0].State==Compare.Update&&states[1].State==Compare.Current);
+ await new Installer(root,new Multi(new(){[sb.Asset]=b,[sf.Asset]=api})).Install(next);Assert(Rules.Read<Installed>(Path.Combine(root,".saturn-manager","installed.json")).Files[0].Version=="0.2.1");
+ var legacy=JsonSerializer.Deserialize<OwnedFile>("{\"id\":\"saturn_atlas\",\"name\":\"atlas.jar\",\"hash\":\"abc\"}",Rules.Json)!;Assert(legacy.Version is null);
+ await Throws(()=>{(pack with{Mods=[sa with{Version="staging"}]}).Validate();return Done();});
+ Assert(SelfUpdate.Feed.Contains("/production/"));
+});
+
+await Test("production and staging launcher profiles coexist with isolated game folders",async()=>{
+ string root=Root(),prod=Path.Combine(root,"prod"),stage=Path.Combine(root,"stage");var p=Pack("0.2.0",Spec("saturn_atlas","atlas.jar",Jar("saturn_atlas","one")));
+ LauncherSetup.Apply(root,prod,p,Fabric(p));LauncherSetup.Apply(root,stage,p,Fabric(p),true);
+ Assert(LauncherSetup.Ready(root,prod,p)&&LauncherSetup.Ready(root,stage,p,true));Assert(!LauncherSetup.Ready(root,prod,p,true));
+ var profiles=System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(root,"launcher_profiles.json")))!["profiles"]!.AsObject();Assert(profiles.Count==2);await Done();
+});
+await Test("mod installs refuse crossing production/staging channels, including legacy records",async()=>{
+ string root=Root();var bytes=Jar("saturn_atlas","one");var m=Spec("saturn_atlas","atlas.jar",bytes);var i=new Installer(root,new Fake(m.Asset,bytes));
+ await i.Install(Pack("0.2.0",m) with{Channel="production"});
+ await Throws(()=>i.Install(Pack("0.1.3-dev",m) with{Channel="staging"}));
+ Assert(Rules.Read<Installed>(Path.Combine(root,".saturn-manager","installed.json")).Channel=="production");
+ string legacy=Root();var j=new Installer(legacy,new Fake(m.Asset,bytes));await j.Install(Pack("staging-atlas-123",m));
+ await Throws(()=>j.Install(Pack("0.2.0",m) with{Channel="production"}));
+});
+
 Console.WriteLine($"RESULT: {passed} passed; {failed} failed");File.WriteAllLines("test-results.txt",results.Append($"RESULT: {passed} passed; {failed} failed"));Environment.ExitCode=failed==0?0:1;
 sealed class Fake(string name,byte[] bytes):IArtifacts{public Task Download(ModSpec mod,string destination,CancellationToken token){if(mod.Asset!=name)throw new Exception("Unexpected asset");return File.WriteAllBytesAsync(destination,bytes,token);}}
 sealed class Multi(Dictionary<string,byte[]> files):IArtifacts{public Task Download(ModSpec mod,string destination,CancellationToken token)=>File.WriteAllBytesAsync(destination,files[mod.Asset],token);}
+
+sealed class MetadataHandler(string json):HttpMessageHandler { protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken token) { if(request.RequestUri!.Host!="meta.fabricmc.net")throw new Exception("Wrong metadata source");return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK){Content=new StringContent(json)}); } }

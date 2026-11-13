@@ -6,20 +6,16 @@ Production world/player data and all three dimensions are retained; nothing from
 staging's world, waypoints or explored terrain was copied into the live world.
 A verified managed full backup was taken before installation.
 
-## Install
-1. Download **Saturn-Mod-Manager.exe**, close the old manager, and run this copy.
-2. In Settings choose your Fabric profile game folder. If you previously used a
-   staging build, click **Use default source** to select the production channel.
-3. Close Minecraft, Check for updates, then Install/Update. Start the same profile.
-4. Use Java **26.3**, Fabric Loader **0.20.1**, Fabric API **0.165.2+26.3**; join
-   your usual live host on **25565**, not staging port 25566.
+## Install — Mod Manager 0.3.0
+1. Download the manager from the **manager-v0.3.0** release. The official Minecraft Launcher and your own signed-in account are required.
+2. Close Minecraft and its Launcher, run the manager, and click Install.
+3. Launch **Higdon Server** in Minecraft Launcher. Fabric 0.20.1 and Minecraft 26.3 are configured automatically; the launcher downloads game/runtime/libraries on first Play.
+4. Join the usual host on **25565**. No separate Fabric installer is needed.
 
-Manager default source:
-https://raw.githubusercontent.com/Zigdon7/MooreMinecraft/main/releases/production/pack.json
-
-The unsigned Windows x64 manager is self-contained. Its self-update discovery feed
-remains the fixed repository staging/components.json feed; pack manifests install
-JARs only. Existing manager settings are preserved, hence the default-source step.
+Production Atlas remains **0.2.0**, independently versioned from the manager.
+Staging is a separate manager channel, **Higdon Server (Staging)** profile, game folder and port **25566**.
+No server/world/plugin deployment is part of the manager release.
+Manager self-updates now use the fixed production/components.json feed; legacy managers receive 0.3.0 through their existing staging feed.
 
 ## Features
 M opens Atlas; drag to pan, Center returns to you; zoom to 9,216 blocks.

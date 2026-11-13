@@ -10,6 +10,7 @@ public sealed class Installer{
  public async Task Install(PackManifest pack,CancellationToken token=default,Action<int>? afterMutation=null){
   pack.Validate();using var guard=Lock();RecoverUnsafe();Installed? old=File.Exists(State)?Rules.Read<Installed>(State):null;
   if(old is not null&&old.PackId!=pack.PackId)throw new InvalidDataException("This profile is already managed by another pack");
+  if(old is not null&&pack.Channel is not null){string prior=old.Channel??(old.Version.Contains("staging",StringComparison.OrdinalIgnoreCase)||old.Version.Contains("dev",StringComparison.OrdinalIgnoreCase)?"staging":"production");if(prior!=pack.Channel)throw new IOException("Staging and production must use separate game folders. Select the channel's default folder.");}
   var existing=new Dictionary<string,(string Id,string Hash)>(StringComparer.OrdinalIgnoreCase);
   if(old is not null)foreach(var file in old.Files){if(!Rules.Asset(file.Name)||!Rules.Hash(file.Hash)||!Rules.Id(file.Id))throw new InvalidDataException("Invalid installed state");var path=Path.Combine(mods,file.Name);Rules.NoLink(path);if(File.Exists(path)){var hash=Rules.Digest(path);if(!hash.Equals(file.Hash,StringComparison.OrdinalIgnoreCase))throw new IOException("Managed file changed locally; refusing to overwrite: "+file.Name);existing.Add(file.Name,(file.Id,hash));}}
   // Migrate prior manual Saturn/Fabric installs by matching their declared mod IDs, not guessed filename prefixes.
@@ -34,7 +35,7 @@ public sealed class Installer{
     if(change.Before is not null){if(!File.Exists(target)||Rules.Digest(target)!=change.Before)throw new IOException("Profile changed during install: "+change.Name);File.Move(target,Path.Combine(txn,"backup",change.Name));afterMutation?.Invoke(++mutations);}
     if(change.After is not null){if(File.Exists(target))throw new IOException("Profile conflict during install: "+change.Name);File.Move(Path.Combine(txn,"downloads",change.Name),target);afterMutation?.Invoke(++mutations);}
    }
-   Rules.Write(State,new Installed(pack.PackId,pack.Version,pack.Mods.Select(m=>new OwnedFile(m.Id,m.Asset,m.Sha256.ToLowerInvariant())).ToList()));
+   Rules.Write(State,new Installed(pack.PackId,pack.Version,pack.Mods.Select(m=>new OwnedFile(m.Id,m.Asset,m.Sha256.ToLowerInvariant(),m.Version)).ToList(),pack.Channel));
    journal.Status="Committed";Rules.Write(Path.Combine(txn,"journal.json"),journal);File.WriteAllText(Path.Combine(root,"last-transaction.txt"),Path.GetFileName(txn));log("Installed "+pack.Version+". Backups retained.");
   }catch{Undo(txn,journal);throw;}
  }
