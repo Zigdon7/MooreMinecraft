@@ -20,3 +20,7 @@ staging manifest URL must be reset in manager Settings -> Use default source.
 Structure tools, gatehouse/village fixtures and attributed loader patch are in release source ZIP.
 No live structure placed: approved coordinates/site survey still pending. No debug binary switch.
 Gameplay/rendering/multiplayer/Narrator acceptance remains open; testing release, not stable parity.
+
+Post-publication: anonymous production manifest download, verified two-JAR install
+and rollback passed. Service remains active. Main Minecraft channel updated with
+live download/install guide; pin requires an administrator in that channel.
