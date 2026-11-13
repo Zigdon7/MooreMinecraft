@@ -209,7 +209,7 @@ fn balance(p: &Player) -> u32 {
         .as_inventory()
         .count_item("minecraft:amethyst_shard")
 }
-fn safe_landing(p: &Player, a: &Anchor) -> Result<(f64, f64, f64), String> {
+fn preload_destination(p: &Player, a: &Anchor) -> Result<(), String> {
     let w = p.get_world();
     if world_key(&w) != a.position.world {
         return Err("Destination lodestone is in another dimension".into());
@@ -218,6 +218,10 @@ fn safe_landing(p: &Player, a: &Anchor) -> Result<(f64, f64, f64), String> {
     // Quote and confirm both call here, so expiration of an earlier hold is safe.
     let _loaded = w.load_chunk((a.position.x.floor() as i32).div_euclid(16),
         (a.position.z.floor() as i32).div_euclid(16));
+    Ok(())
+}
+fn safe_landing(p: &Player, a: &Anchor) -> Result<(f64, f64, f64), String> {
+    let w = p.get_world();
     if !exists(p, a) {
         return Err("Destination lodestone block is missing".into());
     }
@@ -642,6 +646,13 @@ fn stone_command(shared: &Shared, p: &Player, args: &str) -> Result<String, Stri
             Ok("Access updated".into())
         }
         "quote" => {
+            let destination = {
+                let r = lock(shared)?;
+                origin(&r.store.state.atlas,p).ok_or("Stand within 4 blocks of an accessible origin lodestone")?;
+                r.store.state.atlas.anchors.get(rest).filter(|a|a.accessible(&id)).cloned().ok_or("Destination unavailable")?
+            };
+            // Never hold the shared runtime mutex across asynchronous host I/O.
+            preload_destination(p,&destination)?;
             let mut r = lock(shared)?;
             let from = origin(&r.store.state.atlas, p)
                 .ok_or("Stand within 4 blocks of an accessible origin lodestone")?
@@ -684,6 +695,15 @@ fn stone_command(shared: &Shared, p: &Player, args: &str) -> Result<String, Stri
             ))
         }
         "confirm" => {
+            let destination = {
+                let r = lock(shared)?;
+                if r.store.state.pending.contains_key(&id) { return Err("Unresolved previous payment; travel locked pending administrator review".into()); }
+                let q = r.quotes.get(&id).ok_or("No active quote; request a new one")?;
+                TravelRules::default().validate_quote(q,&id,&position(p),&r.store.state.atlas,now(),balance(p)).map_err(str::to_string)?;
+                r.store.state.atlas.anchors.get(&q.destination).cloned().ok_or("Destination removed")?
+            };
+            preload_destination(p,&destination)?;
+            // Revalidate everything after the load, including expiry, origin, access and balance.
             let mut r = lock(shared)?;
             if r.store.state.pending.contains_key(&id) {
                 return Err(
