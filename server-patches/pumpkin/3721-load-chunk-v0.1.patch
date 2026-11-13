@@ -25,47 +25,52 @@ index c84d423..c65f6a4 100644
          "pumpkin:plugin/datapack@0.1.0.[method]datapack-manager.disable-pack": async | store | trappable,
          "pumpkin:plugin/datapack@0.1.0.[method]datapack-manager.enable-pack": async | store | trappable,
 diff --git a/crates/pumpkin-wasm-host-v0_1/src/world.rs b/crates/pumpkin-wasm-host-v0_1/src/world.rs
-index 9bf6395..60f0e34 100644
+index 9bf6395..5200e57 100644
 --- a/crates/pumpkin-wasm-host-v0_1/src/world.rs
 +++ b/crates/pumpkin-wasm-host-v0_1/src/world.rs
-@@ -1151,6 +1151,42 @@ impl pumpkin::plugin::world::HostWorld for PluginHostState {
+@@ -1151,6 +1151,47 @@ impl pumpkin::plugin::world::HostWorld for PluginHostState {
  }
  
  impl pumpkin::plugin::world::HostWorldWithStore<PluginHostState> for HasSelf<PluginHostState> {
 +    // Adapted from Pumpkin-MC/Pumpkin PR3721, commit 5a28128648777ec5b71c23f498e66f0c6227701a.
 +    async fn load_chunk(
-+        accessor: &Accessor<PluginHostState, Self>,
++        mut host: Access<'_, PluginHostState, Self>,
 +        world: Resource<World>,
 +        x: i32,
 +        z: i32,
 +    ) -> wasmtime::Result<Resource<WitChunk>> {
 +        use pumpkin_world::chunk_system::ChunkLoading;
-+        let world_provider = accessor.with(|mut host| world_from_state(host.get(), &world))?;
++        let (world_provider, plugin) = world_and_plugin(host.get(), &world)?;
 +        let level = world_provider.level.clone();
 +        let pos = pumpkin_util::math::vector2::Vector2::new(x, z);
-+        {
-+            let mut loading = level
-+                .chunk_loading
-+                .lock()
-+                .unwrap_or_else(std::sync::PoisonError::into_inner);
-+            loading.add_ticket(pos, ChunkLoading::FULL_CHUNK_LEVEL);
-+            loading.send_change();
-+        }
-+        let chunk = level.get_or_fetch_chunk(pos, Clone::clone).await;
-+        let held = level.clone();
-+        level.spawn_task(async move {
-+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-+            let mut loading = held
-+                .chunk_loading
-+                .lock()
-+                .unwrap_or_else(std::sync::PoisonError::into_inner);
-+            loading.remove_ticket(pos, ChunkLoading::FULL_CHUNK_LEVEL);
-+            loading.send_change();
-+        });
-+        accessor.with(|mut host| {
-+            host.get()
-+                .add((world_provider, std::sync::Arc::downgrade(&chunk)))
-+        })
++        // Loading can fire plugin events; release legacy store access while awaiting them.
++        let chunk = plugin
++            .store
++            .pump_reentry(&mut host, async move {
++                {
++                    let mut loading = level
++                        .chunk_loading
++                        .lock()
++                        .unwrap_or_else(std::sync::PoisonError::into_inner);
++                    loading.add_ticket(pos, ChunkLoading::FULL_CHUNK_LEVEL);
++                    loading.send_change();
++                }
++                let chunk = level.get_or_fetch_chunk(pos, Clone::clone).await;
++                let held = level.clone();
++                level.spawn_task(async move {
++                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
++                    let mut loading = held
++                        .chunk_loading
++                        .lock()
++                        .unwrap_or_else(std::sync::PoisonError::into_inner);
++                    loading.remove_ticket(pos, ChunkLoading::FULL_CHUNK_LEVEL);
++                    loading.send_change();
++                });
++                chunk
++            })
++            .await?;
++        host.get()
++            .add((world_provider, std::sync::Arc::downgrade(&chunk)))
 +    }
 +
      async fn set_raining(
