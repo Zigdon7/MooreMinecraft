@@ -13,9 +13,13 @@ then verifies actual lodestone and safe footing before any payment/teleport.
 The vendored guest SDK has only this WIT addition; compatible host required.
 Do not deploy the new plugin on stock Pumpkin: its new import will not resolve.
 
-Optimized native build and isolated runtime validation pending. Production remains
-on stock Pumpkin plus Atlas0.2.1. A production binary switch needs explicit owner approval.
+Optimized native build and isolated runtime validation pending. Production is on stock Pumpkin plus Atlas server 0.2.3 / client 0.2.1. Owner has authorized the tested combined production promotion.
 
 2026-11-13 owner follow-up: "push this to prod for testing once complete" explicitly
 approves promoting this patched engine + guest after isolated tests and a fresh backup.
 No additional capabilities, world reset or unrelated engine upgrade is authorized.
+
+## Combined candidate (2026-11-13)
+Native source commit `fd87921` (base eda6944 + PR4373 + PR3721 adaptation + exact protected eyeblossom mitigation). Source preflight passes. Optimized build: `CARGO_INCREMENTAL=0 cargo build --locked -p pumpkin -j1 --release --config 'profile.release.lto=false' --config 'profile.release.codegen-units=16'` with the documented user-owned Zig wrappers.
+
+Atlas guest 0.2.4 is merged with the released client 0.2.1 manual-cache/player-presence changes; all 27 Rust and 57 Java tests pass. Separate host/guest is still not live until runtime probe succeeds. Candidate runtime uses disposable loopback 25569, zero players, positive/negative marker chunks, unload/reload persistence, duplicate lease expiry, and console `atlas preflight` for lodestone/footing validation without moving/debiting a player. Do not install the destructive test probe in production. Keep the original binary and current 0.2.3 WASM together for rollback; 0.2.4 will not run on stock Pumpkin.
