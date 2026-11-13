@@ -370,3 +370,17 @@ mod tests {
 
 pub mod explore;
 pub mod protocol;
+
+/// Retain existing Overworld records; separate other dimensions sharing the host level name.
+pub fn world_identity(level: &str, dimension: &str) -> String {
+    if dimension == "minecraft:overworld" { level.to_owned() }
+    else { format!("{level}@{dimension}") }
+}
+#[cfg(test)] mod dimension_identity_tests {
+    use super::world_identity;
+    #[test] fn separates_dimensions_without_invalidating_overworld_data() {
+        let ids: std::collections::BTreeSet<_> = ["minecraft:overworld", "minecraft:the_nether", "minecraft:the_end"].iter().map(|d|world_identity("world",d)).collect();
+        assert_eq!(ids.len(),3); assert!(ids.contains("world"));
+        assert_ne!(world_identity("other", "minecraft:the_end"),world_identity("world", "minecraft:the_end"));
+    }
+}

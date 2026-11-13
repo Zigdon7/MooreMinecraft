@@ -104,9 +104,10 @@ impl Plugin for SaturnAtlas {
         }));
         let mut identities = std::collections::BTreeSet::new();
         for world in context.get_server().get_all_worlds() {
-            let id = world.get_id();
+            let id = game::world_key(&world);
+            tracing::info!("SATURN_WORLD_ID key={} dimension={}", id, world.get_dimension());
             if !identities.insert(id) {
-                return Err("Host reports ambiguous dimension identities; restrict this staging build to one dimension".into());
+                return Err("Host reports ambiguous dimension identities; refusing unsafe cross-dimension map/travel".into());
             }
         }
         game::setup(&context, shared.clone())?;

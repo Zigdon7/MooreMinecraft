@@ -1,7 +1,7 @@
 //! Staging gameplay adapters. All host mutations remain server authoritative.
 use crate::Store;
 use pumpkin_plugin_api::{
-    Context, Server,
+    Context, Server, World,
     command::{
         Arg, ArgumentType, Command, CommandError, CommandNode, CommandSender, ConsumedArgs,
         StringType,
@@ -71,13 +71,16 @@ fn now() -> u64 {
         .unwrap_or_default()
         .as_millis() as u64
 }
+pub fn world_key(world: &World) -> String {
+    saturn_atlas_core::world_identity(&world.get_id(), &world.get_dimension())
+}
 fn pid(p: &Player) -> String {
     uuid::to_string(p.get_id())
 }
 fn position(p: &Player) -> Position {
     let (x, y, z) = p.get_position();
     Position {
-        world: p.get_world().get_id(),
+        world: world_key(&p.get_world()),
         x,
         y,
         z,
@@ -104,11 +107,11 @@ fn anchor_block(p: &Player) -> Result<(BlockPos, Position), String> {
         z: t.2.floor() as i32,
     };
     if is_lodestone(&p.get_world().get_block_state(b).block_name) {
-        return Ok((b, standing_spot(&p.get_world().get_id(), b)));
+        return Ok((b, standing_spot(&world_key(&p.get_world()), b)));
     }
     // The ray can report a point on the block's face, which floors to the neighbouring block.
     let near = nearest_lodestone(p).ok_or("Look at or stand next to a placed lodestone")?;
-    Ok((near, standing_spot(&p.get_world().get_id(), near)))
+    Ok((near, standing_spot(&world_key(&p.get_world()), near)))
 }
 fn is_lodestone(name: &str) -> bool {
     name == "minecraft:lodestone" || name == "lodestone"
@@ -151,7 +154,7 @@ fn nearest_lodestone(p: &Player) -> Option<BlockPos> {
 /// Registers the lodestone at `b` as a shared waypoint owned by `p`, unless it already is one.
 /// Returns the waypoint's name when a new one was created.
 fn register_lodestone(shared: &Shared, p: &Player, b: BlockPos) -> Result<Option<String>, String> {
-    let world = p.get_world().get_id();
+    let world = world_key(&p.get_world());
     let mut r = lock(shared)?;
     if r.store.state.atlas.anchor_at(&world, b.x, b.y, b.z).is_some() {
         return Ok(None);
@@ -189,7 +192,7 @@ fn origin<'a>(atlas: &'a saturn_atlas_core::Atlas, p: &Player) -> Option<&'a Anc
 }
 fn exists(p: &Player, a: &Anchor) -> bool {
     let w = p.get_world();
-    if w.get_id() != a.position.world {
+    if world_key(&w) != a.position.world {
         return false;
     }
     let b = BlockPos {
@@ -475,7 +478,7 @@ fn atlas_command(shared: &Shared, p: &Player, args: &str) -> Result<String, Stri
                 .state
                 .atlas
                 .markers_for(&id)
-                .filter(|m| m.position.world == p.get_world().get_id())
+                .filter(|m| m.position.world == world_key(&p.get_world()))
                 .take(50)
                 .map(|m| format!("{} — {}", m.id, m.name))
                 .collect::<Vec<_>>()
@@ -741,7 +744,7 @@ fn stone_command(shared: &Shared, p: &Player, args: &str) -> Result<String, Stri
             let mut r = lock(shared)?;
             if position(p)
                 .distance(&Position {
-                    world: p.get_world().get_id(),
+                    world: world_key(&p.get_world()),
                     x: landing.0,
                     y: landing.1,
                     z: landing.2,
@@ -826,7 +829,7 @@ impl EventHandler<BlockBreakEvent> for Broken {
                 .filter(|a| {
                     worlds
                         .iter()
-                        .find(|w| w.get_id() == a.position.world)
+                        .find(|w| world_key(w) == a.position.world)
                         .is_some_and(|w| !is_lodestone(&w.get_block_state(b).block_name))
                 })
                 .map(|a| (a.id.clone(), a.name.clone()))
@@ -868,7 +871,7 @@ impl EventHandler<PlayerInteractEvent> for Touched {
                 return e;
             }
         }
-        let (id, world) = (pid(p), p.get_world().get_id());
+        let (id, world) = (pid(p), world_key(&p.get_world()));
         let found = lock(&self.shared).ok().and_then(|r| {
             r.store.state.atlas.anchor_at(&world, b.x, b.y, b.z).map(|a| (a.id.clone(), a.name.clone(), a.owner.clone()))
         });
@@ -946,7 +949,7 @@ impl EventHandler<ChunkSendEvent> for Chunks {
         if !e.cancelled {
             if let Ok(mut r) = self.shared.lock() {
                 r.queue
-                    .push((e.target_world.get_id(), e.chunk_x, e.chunk_z));
+                    .push((world_key(&e.target_world), e.chunk_x, e.chunk_z));
             }
         }
         e
@@ -1036,7 +1039,7 @@ pub fn setup(context: &Context, shared: Shared) -> Result<(), String> {
             .map(|p| {
                 let (x, _, z) = p.get_position();
                 (
-                    p.get_world().get_id(),
+                    world_key(&p.get_world()),
                     (x.floor() as i32).div_euclid(16),
                     (z.floor() as i32).div_euclid(16),
                 )
@@ -1054,7 +1057,7 @@ pub fn setup(context: &Context, shared: Shared) -> Result<(), String> {
             let (world, x, z) = key;
             let chunk = worlds
                 .iter()
-                .find(|w| w.get_id() == *world)?
+                .find(|w| world_key(w) == *world)?
                 .get_chunk(*x, *z)?;
             let mut pixels = vec![];
             for dz in 0..4 {

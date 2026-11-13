@@ -31,8 +31,8 @@ text, not only as colour.
 
 ## What it changes, and what it never touches
 
-Default source: `https://raw.githubusercontent.com/Zigdon7/MooreMinecraft/main/releases/staging/pack.json`.
-The staging manifest pins exact public GitHub release tags/assets, sizes, SHA-256 hashes and Fabric
+Default source: `https://raw.githubusercontent.com/Zigdon7/MooreMinecraft/main/releases/production/pack.json`.
+The live-testing manifest pins exact public GitHub release tags/assets, sizes, SHA-256 hashes and Fabric
 mod IDs. From a pack manifest the manager installs JARs only. It does not install Minecraft, change
 accounts or worlds, or replace the launcher.
 

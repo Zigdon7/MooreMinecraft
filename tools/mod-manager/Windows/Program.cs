@@ -34,7 +34,7 @@ sealed class ManagerForm : Form
     readonly PillButton check = new("&Check for updates", "Check for updates", Kind.Secondary);
     readonly PillButton changeFolder = new("Change…", "Change game folder", Kind.Link);
     readonly Badge state = new(9);
-    readonly Line meta = new("Staging channel"), installedValue = new("", 13, true), latestValue = new("", 13, true), folderLine = new("", 9), hint = new("", 10, lines: 2), listHeading = new("", 8.5f, true);
+    readonly Line meta = new("Live testing channel"), installedValue = new("", 13, true), latestValue = new("", 13, true), folderLine = new("", 9), hint = new("", 10, lines: 2), listHeading = new("", 8.5f, true);
     readonly TableLayoutPanel list = Stack();
     // Settings page
     readonly TextBox profile = new() { Dock = DockStyle.Fill, BorderStyle = BorderStyle.FixedSingle, AccessibleName = "Minecraft game folder", AccessibleDescription = "The game directory used by your Fabric launcher profile." };
@@ -69,7 +69,7 @@ sealed class ManagerForm : Form
     CancellationTokenSource? cancellation;
     bool busy, failedInstallation, checkFailed, recordError;
     string rowsShown = "";
-    const string DefaultManifest = "https://raw.githubusercontent.com/Zigdon7/MooreMinecraft/main/releases/staging/pack.json";
+    const string DefaultManifest = "https://raw.githubusercontent.com/Zigdon7/MooreMinecraft/main/releases/production/pack.json";
     string SettingsFile => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SaturnModManager", "settings.json");
 
     public ManagerForm(string[] args)
@@ -283,7 +283,7 @@ sealed class ManagerForm : Form
 
         installedValue.Text = !folder ? "Folder not found" : recordError ? "Unknown" : record is null ? "Not installed" : record.Version;
         latestValue.Text = pack?.Version ?? (checkFailed ? "Unavailable" : busy ? "Checking…" : "Not checked");
-        meta.Text = pack is null ? "Staging channel" : $"Staging channel  ·  Minecraft {pack.Minecraft}  ·  Fabric Loader {pack.FabricLoader}";
+        meta.Text = pack is null ? "Live testing channel" : $"Live testing channel  ·  Minecraft {pack.Minecraft}  ·  Fabric Loader {pack.FabricLoader}";
         folderLine.Text = profile.Text.Trim();
 
         if (busy) state.Set("Working…", Muted);
@@ -307,7 +307,7 @@ sealed class ManagerForm : Form
         hint.Text = busy ? "Please wait. You can cancel safely; anything half-done is put back first."
             : !folder ? "Choose the game folder of your Fabric profile to continue."
             : pack is null ? (checkFailed ? "The release list could not be read. Check your connection, then check again." : "Check for updates to see the latest release. Checking never installs anything.")
-            : upToDate ? "You’re ready. Launch your Fabric profile and join the staging server."
+            : upToDate ? "You’re ready. Launch your Fabric profile and join the live server on port 25565."
             : missing > 0 ? $"{missing} installed {(missing == 1 ? "file is" : "files are")} missing from the mods folder. Close Minecraft, then click {action} to repair."
             : $"Close Minecraft, then click {action}. The mods it replaces are backed up, and your other mods are not touched.";
         AcceptButton = install.Enabled && !upToDate ? install : check;
