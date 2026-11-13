@@ -21,6 +21,17 @@ public sealed class GitHubSource:IArtifacts,IDisposable{
   while((read=await input.ReadAsync(buffer,token))!=0){count+=read;if(count>mod.Size)throw new InvalidDataException("Download exceeds expected size");await output.WriteAsync(buffer.AsMemory(0,read),token);}
   if(count!=mod.Size)throw new InvalidDataException("Incomplete download");await output.FlushAsync(token);
  }
+ public async Task<ManagerRelease?> FetchManager(CancellationToken token){using var request=new HttpRequestMessage(HttpMethod.Get,SelfUpdate.Feed);request.Headers.CacheControl=new CacheControlHeaderValue{NoCache=true};using var response=await client.SendAsync(request,HttpCompletionOption.ResponseHeadersRead,token);return SelfUpdate.Parse(await Limited(response,1048576,token));}
+ /// <summary>Downloads the manager's own pinned release. The caller verifies it before use.</summary>
+ public async Task DownloadManager(ManagerRelease release,string destination,IProgress<int>? progress,CancellationToken token){
+  SelfUpdate.Validate(release);
+  using var download=await client.GetAsync(release.Download,HttpCompletionOption.ResponseHeadersRead,token);download.EnsureSuccessStatusCode();
+  if(download.Content.Headers.ContentLength is long n&&n!=release.Size)throw new InvalidDataException("Download length mismatch");
+  await using var input=await download.Content.ReadAsStreamAsync(token);await using var output=new FileStream(destination,FileMode.Create,FileAccess.Write,FileShare.None);
+  byte[] buffer=new byte[131072];long count=0;int read,last=-1;
+  while((read=await input.ReadAsync(buffer,token))!=0){count+=read;if(count>release.Size)throw new InvalidDataException("Download exceeds expected size");await output.WriteAsync(buffer.AsMemory(0,read),token);int percent=(int)(count*100/release.Size);if(percent!=last)progress?.Report(last=percent);}
+  if(count!=release.Size)throw new InvalidDataException("Incomplete download");await output.FlushAsync(token);
+ }
  static async Task<byte[]> Limited(HttpResponseMessage response,int max,CancellationToken token){response.EnsureSuccessStatusCode();await using var input=await response.Content.ReadAsStreamAsync(token);using var output=new MemoryStream();byte[] buffer=new byte[8192];int n;while((n=await input.ReadAsync(buffer,token))>0){if(output.Length+n>max)throw new InvalidDataException("Response too large");output.Write(buffer,0,n);}return output.ToArray();}
  public void Dispose()=>client.Dispose();
 }

@@ -34,16 +34,20 @@ $cases = @(
  @{name="initial"; args="--ui-preview initial"},
  @{name="checked"; args="--ui-preview checked"},
  @{name="keyboard"; args="--ui-preview checked"},
- @{name="uia-expand"; args="--ui-preview checked"},
+ @{name="uia-pages"; args="--ui-preview checked"},
  @{name="busy"; args="--ui-preview busy"},
  @{name="success"; args="--ui-preview success"},
  @{name="error"; args="--ui-preview error"},
- @{name="details"; args="--ui-preview details"},
+ @{name="offline"; args="--ui-preview offline"},
+ @{name="manager"; args="--ui-preview manager"},
+ @{name="settings"; args="--ui-preview settings"},
+ @{name="activity"; args="--ui-preview activity"},
  @{name="narrow"; args="--ui-preview checked --narrow"},
  @{name="large-text"; args="--ui-preview checked --large-text"},
  @{name="narrow-large-text"; args="--ui-preview checked --narrow --large-text"},
  @{name="narrow-busy-large-text"; args="--ui-preview busy --narrow --large-text"},
  @{name="narrow-error-large-text"; args="--ui-preview error --narrow --large-text"},
+ @{name="narrow-manager-large-text"; args="--ui-preview manager --narrow --large-text"},
  @{name="long-values"; args="--ui-preview checked --long-values --narrow"}
 )
 foreach ($case in $cases) {
@@ -62,35 +66,40 @@ foreach ($case in $cases) {
    $rows += [pscustomobject]@{name=$c.Name; type=$c.ControlType.ProgrammaticName; enabled=$c.IsEnabled; offscreen=$c.IsOffscreen; bounds=$c.BoundingRectangle.ToString()}
   }
   $rows | ConvertTo-Json -Depth 3 | Set-Content (Join-Path $evidence "$($case.name)-uia.json")
-  $installName = if ($case.name -eq "success") { "Reinstall checked update" } elseif ($case.name -like "*error*") { "Retry checked installation" } else { "Install checked update" }
-  foreach ($name in @("Check for updates", $installName, "Update status")) {
-   if (-not ($rows | Where-Object {$_.name -eq $name})) { throw "Accessible control missing: $name in $($case.name)" }
+  function Shown([string]$Name) {
+   $row = $rows | Where-Object {$_.name -eq $Name} | Select-Object -First 1
+   if (-not $row) { throw "Accessible control missing: $Name in $($case.name)" }
+   if ($row.offscreen) { throw "Control is outside the window: $Name in $($case.name)" }
+   $row
   }
-  $installRow = $rows | Where-Object {$_.name -eq $installName} | Select-Object -First 1
-  if ($installRow.offscreen) { throw "Primary install action is below the viewport: $($case.name)" }
+  foreach ($name in @("Mods page", "Settings page", "Activity page", "Update status")) { $null = Shown $name }
+  if ($case.name -eq "settings") {
+   foreach ($name in @("Minecraft game folder", "Browse for Minecraft game folder", "Advanced pack manifest URL")) { $null = Shown $name }
+  } elseif ($case.name -eq "activity") {
+   $null = Shown "Activity log"
+  } else {
+   # The main action and the two versions are always on screen on the Mods page.
+   $installName = if ($case.name -eq "success") { "Reinstall checked update" } elseif ($case.name -like "*error*") { "Retry checked installation" } else { "Install checked update" }
+   foreach ($name in @($installName, "Check for updates", "Change game folder", "Pack status", "Installed", "Latest")) { $null = Shown $name }
+  }
   if ($case.name -like "*busy*") {
-   $cancelRow = $rows | Where-Object {$_.name -eq "Cancel current operation safely"} | Select-Object -First 1
-   if (-not $cancelRow.enabled -or $cancelRow.offscreen) { throw "Busy cancellation is not visible/enabled" }
+   if (-not (Shown "Cancel current operation safely").enabled) { throw "Busy cancellation is not enabled" }
   }
-  if ($case.name -eq "uia-expand") {
+  if ($case.name -like "*manager*") {
+   if (-not (Shown "Install manager update").enabled) { throw "Manager update is not offered as an enabled action" }
+  } elseif ($rows | Where-Object {$_.name -eq "Install manager update" -and -not $_.offscreen}) { throw "Manager update offered without a newer release: $($case.name)" }
+  if ($case.name -eq "uia-pages") {
    # Separate MTA automation client; a provider hang is a real failing gate.
-   $worker = Start-Process pwsh -ArgumentList @("-Mta", "-NoProfile", "-File", "scripts/windows-uia-expand.ps1", "-ProcessId", $p.Id) -PassThru -RedirectStandardOutput (Join-Path $evidence "uia-expand-worker.txt") -RedirectStandardError (Join-Path $evidence "uia-expand-worker-error.txt")
-   if (-not $worker.WaitForExit(20000)) { $worker.Kill(); throw "UIA expansion provider timed out" }
-   if ($worker.ExitCode -ne 0) { throw "UIA expansion worker failed: $($worker.ExitCode)" }
+   $shell = if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh" } else { "powershell" }
+   $worker = Start-Process $shell -ArgumentList @("-Mta", "-NoProfile", "-File", "scripts/windows-uia-pages.ps1", "-ProcessId", $p.Id) -PassThru -RedirectStandardOutput (Join-Path $evidence "uia-pages-worker.txt") -RedirectStandardError (Join-Path $evidence "uia-pages-worker-error.txt")
+   $null = $worker.Handle   # Windows PowerShell 5.1 only reports ExitCode once the handle is cached.
+   if (-not $worker.WaitForExit(30000)) { $worker.Kill(); throw "UIA page navigation timed out" }
+   if ($worker.ExitCode -ne 0) { throw "UIA page navigation worker failed: $($worker.ExitCode)" }
   }
   if ($case.name -eq "keyboard") {
-   $toggle = $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, ([System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, "Change selected game folder")))
-   # Expand/collapse through real keyboard input. Synchronous UIA Toggle across
-   # a structural visibility change can deadlock the provider on hosted Windows.
-   Focus-WithTabs "Change selected game folder"
-   [System.Windows.Forms.SendKeys]::SendWait(" ")
-   Start-Sleep -Milliseconds 300
-   if ($toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On) { throw "Keyboard Space did not expand Change folder" }
-   $expanded = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
-   @($expanded | ForEach-Object { [pscustomobject]@{name=$_.Current.Name; enabled=$_.Current.IsEnabled; offscreen=$_.Current.IsOffscreen; bounds=$_.Current.BoundingRectangle.ToString()} }) | ConvertTo-Json -Depth 3 | Set-Content (Join-Path $evidence "expanded-uia.json")
    $names = @()
    $sameFocus = 0; $lastFocus = ""
-   for ($i=0; $i -lt 16; $i++) {
+   for ($i=0; $i -lt 14; $i++) {
     [System.Windows.Forms.SendKeys]::SendWait("{TAB}")
     Start-Sleep -Milliseconds 80
     $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
@@ -101,17 +110,21 @@ foreach ($case in $cases) {
     }
    }
    $names | Set-Content (Join-Path $evidence "keyboard-tab-order.txt")
-   foreach ($required in @("Browse for Minecraft game folder", "Check for updates", "Install checked update")) {
+   foreach ($required in @("Install checked update", "Check for updates", "Change game folder", "Mods page", "Settings page", "Activity page")) {
     if ($names -notcontains $required) { throw "Keyboard Tab cannot reach: $required" }
    }
+   # Open Settings with the keyboard only, then reach its controls.
+   Focus-WithTabs "Settings page"
+   [System.Windows.Forms.SendKeys]::SendWait(" ")
+   Start-Sleep -Milliseconds 500
    $field = $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, ([System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, "Minecraft game folder")))
+   if (-not $field -or $field.Current.IsOffscreen) { throw "Keyboard Space did not open Settings" }
    $value = $field.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value
    if ($value -ne 'C:\Users\Player\AppData\Roaming\.minecraft') { throw "Keyboard flow changed the game folder unexpectedly" }
-   # Expand/collapse through real keyboard input. Synchronous UIA Toggle across
-   # a structural visibility change can deadlock the provider on hosted Windows.
-   Focus-WithTabs "Change selected game folder"
+   Focus-WithTabs "Browse for Minecraft game folder"
+   Focus-WithTabs "Mods page"
    [System.Windows.Forms.SendKeys]::SendWait(" ")
-   $checkControl = $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, ([System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, "Check for updates")))
+   Start-Sleep -Milliseconds 500
    Focus-WithTabs "Check for updates"
    Start-Sleep -Milliseconds 200
   }

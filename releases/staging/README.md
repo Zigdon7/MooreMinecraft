@@ -5,7 +5,7 @@ Staging only: Java **26.3**, Fabric Loader **0.20.1**, server port **25566**, Su
 ## One-time setup
 1. Use a separate test Minecraft game directory/profile. Install Fabric Loader 0.20.1 for Java 26.3 once from https://fabricmc.net/use/installer/.
 2. Download **Saturn-Mod-Manager.exe** from this repository's staging release. No separate .NET runtime is required.
-3. Close Minecraft. Run the manager, choose the game directory used by that Fabric profile and click **Check releases → Install / Update**.
+3. Close Minecraft. Run the manager, choose the game directory used by that Fabric profile and click **Install** (or **Update**). The manager checks for releases when it opens, and from 0.2.0 offers its own updates with one click.
 4. Launch that same Fabric profile and join the usual server host with port **25566**.
 
 The default manifest is already configured. It installs the matching Atlas companion and Fabric API. Old copies of those mods are recognized by Fabric mod ID and backed up; unrelated mods are preserved. No ZIP copying is required for later updates: close Minecraft and use the same manager again.
