@@ -1,34 +1,34 @@
-diff --git a/crates/pumpkin-plugin-wit/v0.2/world.wit b/crates/pumpkin-plugin-wit/v0.2/world.wit
-index 538201c..dc79fa2 100644
---- a/crates/pumpkin-plugin-wit/v0.2/world.wit
-+++ b/crates/pumpkin-plugin-wit/v0.2/world.wit
-@@ -820,6 +820,9 @@ interface %world {
+diff --git a/crates/pumpkin-plugin-wit/v0.1/world.wit b/crates/pumpkin-plugin-wit/v0.1/world.wit
+index e0e746f..a7850b9 100644
+--- a/crates/pumpkin-plugin-wit/v0.1/world.wit
++++ b/crates/pumpkin-plugin-wit/v0.1/world.wit
+@@ -800,6 +800,9 @@ interface %world {
          /// Gets the chunk at the specified chunk coordinates.
          get-chunk: func(x: s32, z: s32) -> option<chunk>;
  
-+        /// Load or generate a chunk, retaining a temporary full-chunk ticket. Backport of PR3721.
++        /// Load a chunk and retain an independent full-chunk lease for five seconds.
 +        load-chunk: func(x: s32, z: s32) -> chunk;
 +
-         /// Returns whether the chunk at the specified chunk coordinates is currently loaded.
-         is-chunk-loaded: func(x: s32, z: s32) -> bool;
+         /// Gets the block state ID at the specified position.
+         get-block-state-id: func(pos: block-pos) -> u16;
  
-diff --git a/crates/pumpkin-wasm-host-v0_2/src/bindings.rs b/crates/pumpkin-wasm-host-v0_2/src/bindings.rs
-index 84892ea..e783c6f 100644
---- a/crates/pumpkin-wasm-host-v0_2/src/bindings.rs
-+++ b/crates/pumpkin-wasm-host-v0_2/src/bindings.rs
+diff --git a/crates/pumpkin-wasm-host-v0_1/src/bindings.rs b/crates/pumpkin-wasm-host-v0_1/src/bindings.rs
+index c84d423..c65f6a4 100644
+--- a/crates/pumpkin-wasm-host-v0_1/src/bindings.rs
++++ b/crates/pumpkin-wasm-host-v0_1/src/bindings.rs
 @@ -4,6 +4,7 @@ bindgen!({
-     path: "../pumpkin-plugin-wit/v0.2",
+     path: "../pumpkin-plugin-wit/v0.1",
      world: "plugin",
      imports: {
-+        "pumpkin:plugin/world@0.2.0.[method]world.load-chunk": async | store | trappable,
-         "pumpkin:plugin/command@0.2.0.[method]command-sender.has-permission": async | store | trappable,
-         "pumpkin:plugin/datapack@0.2.0.[method]datapack-manager.disable-pack": async | store | trappable,
-         "pumpkin:plugin/datapack@0.2.0.[method]datapack-manager.enable-pack": async | store | trappable,
-diff --git a/crates/pumpkin-wasm-host-v0_2/src/world.rs b/crates/pumpkin-wasm-host-v0_2/src/world.rs
-index b2e0c90..4d43bbd 100644
---- a/crates/pumpkin-wasm-host-v0_2/src/world.rs
-+++ b/crates/pumpkin-wasm-host-v0_2/src/world.rs
-@@ -1245,6 +1245,42 @@ impl pumpkin::plugin::world::HostWorld for PluginHostState {
++        "pumpkin:plugin/world@0.1.0.[method]world.load-chunk": async | store | trappable,
+         "pumpkin:plugin/command@0.1.0.[method]command-sender.has-permission": async | store | trappable,
+         "pumpkin:plugin/datapack@0.1.0.[method]datapack-manager.disable-pack": async | store | trappable,
+         "pumpkin:plugin/datapack@0.1.0.[method]datapack-manager.enable-pack": async | store | trappable,
+diff --git a/crates/pumpkin-wasm-host-v0_1/src/world.rs b/crates/pumpkin-wasm-host-v0_1/src/world.rs
+index 9bf6395..60f0e34 100644
+--- a/crates/pumpkin-wasm-host-v0_1/src/world.rs
++++ b/crates/pumpkin-wasm-host-v0_1/src/world.rs
+@@ -1151,6 +1151,42 @@ impl pumpkin::plugin::world::HostWorld for PluginHostState {
  }
  
  impl pumpkin::plugin::world::HostWorldWithStore<PluginHostState> for HasSelf<PluginHostState> {
@@ -69,5 +69,5 @@ index b2e0c90..4d43bbd 100644
 +    }
 +
      async fn set_raining(
-         accessor: &Accessor<PluginHostState, Self>,
+         mut host: Access<'_, PluginHostState, Self>,
          world: Resource<World>,

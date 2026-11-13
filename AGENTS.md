@@ -13,3 +13,5 @@
 - 2026-11-13 chunk-preload task: owner explicitly authorized promoting the tested PR4373+PR3721 engine backports and compatible Atlas guest to production once validation completes. Take a fresh backup; keep the prior binary/plugin for rollback. This is not blanket authorization for later unrelated binary upgrades.
 
 - **Protected Pumpkin fix (owner, 2026-11-13):** every server-engine update must retain the eyeblossom Trail disconnect mitigation, or a verified upstream replacement. Follow `server-patches/pumpkin/EYEBLOSSOM-DISCONNECT.md` and run `check-eyeblossom-fix.py` on candidate source before building/promoting. Never blindly replace with a stock binary or drop this when promoting chunk-preload. Source patch alone is not runtime/deployment proof.
+
+- **Atlas ABI gate:** SDK crate0.2.1+26.3-26.51 actually imports `pumpkin:plugin@0.1.0`. Inspect WIT/component package versions, never infer ABI from crate semver. Its preload host backport targets v0_1 and builds with default features; do not enable experimental plugin-v0_2 for this legacy guest.

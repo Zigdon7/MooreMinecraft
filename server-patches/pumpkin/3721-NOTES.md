@@ -1,29 +1,20 @@
 # Plugin load-chunk backport candidate (not deployed)
-Adapted from upstream Pumpkin PR3721, commit 5a28128648777ec5b71c23f498e66f0c6227701a.
-Target: base eda6944 + existing tested PR4373 backport (95acaca).
-GPL-3.0 host patch; upstream copyright/license retained. Original author metadata:
-https://github.com/Pumpkin-MC/Pumpkin/pull/3721
 
-Original PR targeted v0.1/older layout; adaptation adds world.load-chunk to v0.2,
-marks the host import asynchronous, and uses current host resource accessors.
-It acquires a full-chunk ticket, awaits fetch/generation, and holds the chunk for five
-more seconds. Existing get-chunk remains loaded-only; map scans never generate terrain.
-Atlas calls load-chunk before destination validation at BOTH quote and confirm,
-then verifies actual lodestone and safe footing before any payment/teleport.
-The vendored guest SDK has only this WIT addition; compatible host required.
-Do not deploy the new plugin on stock Pumpkin: its new import will not resolve.
+Source: Pumpkin PR3721, commit 5a28128648777ec5b71c23f498e66f0c6227701a.
+Base: eda6944 + tested PR4373 backport95acaca. Host patch GPL-3.0; upstream attribution and license retained. https://github.com/Pumpkin-MC/Pumpkin/pull/3721
 
-Optimized native build and isolated runtime validation pending. Production is on stock Pumpkin plus Atlas server 0.2.3 / client 0.2.1. Owner has authorized the tested combined production promotion.
+## ABI gate — verified from actual WIT
+The published SDK crate `pumpkin-plugin-api 0.2.1+26.3-26.51` imports **pumpkin:plugin@0.1.0**, NOT ABI0.2. Never infer ABI from the Rust crate version. The matching host is `pumpkin-wasm-host-v0_1` and WIT directory `v0.1`. The new method is marked async/store/trappable for `pumpkin:plugin/world@0.1.0.[method]world.load-chunk`, implemented in `HostWorldWithStore` using the current Accessor interface.
 
-2026-11-13 owner follow-up: "push this to prod for testing once complete" explicitly
-approves promoting this patched engine + guest after isolated tests and a fresh backup.
-No additional capabilities, world reset or unrelated engine upgrade is authorized.
+Earlier draft targeted v0.2 incorrectly and was not deployed. The optional `plugin-v0_2` feature is NOT required for this guest; that experiment was stopped and its native changes removed. Use `3721-load-chunk-v0.1.patch`. Current complete native source: **deb4f23**, including protected eyeblossom mitigation. Source preflight passes; validate actual guest instantiation and runtime before promotion.
 
-## Combined candidate (2026-11-13)
-Native source commit `9683333` (base eda6944 + PR4373 + PR3721 adaptation + exact protected eyeblossom mitigation). Source preflight passes. Optimized build: `CARGO_INCREMENTAL=0 cargo build --locked -p pumpkin --features plugin-v0_2 -j1 --release --config 'profile.release.lto=false' --config 'profile.release.codegen-units=16'` with the documented user-owned Zig wrappers.
+## Behavior
+Acquire a full-chunk ticket, await fetch/generation, retain the independent ticket for five more seconds, then remove it. Existing get-chunk remains loaded-only, so map scans do not generate terrain. Atlas preloads at BOTH quote and confirm outside the shared mutex, then rechecks expiry, origin proximity, access, balance, real lodestone and safe footing before any payment or teleport. The vendored registry SDK is unchanged except this WIT method; stock host cannot load the new guest.
 
-Atlas guest 0.2.4 is merged with the released client 0.2.1 manual-cache/player-presence changes; all 27 Rust and 57 Java tests pass. Separate host/guest is still not live until runtime probe succeeds. Candidate runtime uses disposable loopback 25569, zero players, positive/negative marker chunks, unload/reload persistence, duplicate lease expiry, and console `atlas preflight` for lodestone/footing validation without moving/debiting a player. Do not install the destructive test probe in production. Keep the original binary and current 0.2.3 WASM together for rollback; 0.2.4 will not run on stock Pumpkin.
+## Build and evidence
+Optimized command, with documented user-owned Zig CC/AR wrappers:
+`CARGO_INCREMENTAL=0 cargo build --locked -p pumpkin -j1 --release --config 'profile.release.lto=false' --config 'profile.release.codegen-units=16'`
 
-Native async adaptation review: load-chunk belongs in generated `HostWorldWithStore`, not the synchronous `HostWorld` trait. Corrected in 9683333 before that host crate compiled; portable patch regenerated.
+Guest0.2.4 includes released client0.2.1 cache/player presence changes:27 Rust+57 Java tests pass, fresh-checkout CI green. Runtime uses a disposable three-dimension loopback world on25569, zero players, positive/negative marker chunks, independent lease expiry, unload/reload and console safety preflight. Never install the destructive test probe in shared/prod worlds.
 
-Build gate: upstream disables the v0.2 host by default. `--features plugin-v0_2` is REQUIRED for Atlas. A baseline-only executable must never be promoted; validate actual v0.2 guest loading in the disposable runtime.
+Production still runs stock Pumpkin + Atlas server0.2.3/client0.2.1. Owner explicitly authorized promotion after checks (reconfirmed 'move everything to prod'); full backup and rollback pair must be retained. Real-client gameplay/particle acceptance must be reported separately from automated checks.

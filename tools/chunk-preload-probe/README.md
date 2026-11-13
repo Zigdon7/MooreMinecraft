@@ -1,6 +1,6 @@
 # Isolated chunk-preload regression probe
 DO NOT install on production or shared player worlds: this deliberately writes two high-altitude lodestones.
-Install only in a new disposable world, zero players, loopback-only port, patched v0.2 host.
+Install only in a new disposable world, zero players, loopback-only port, matching patched legacy @0.1.0 host.
 No filesystem capabilities requested. It logs PRELOAD_PROBE_OK phases 1 and 2 or panics on failure.
 
 Phase1 (20 ticks): assert both distant positive/negative-coordinate chunks unloaded,
