@@ -32,7 +32,7 @@ jobs:
         with:
           name: atlas
           path: |
-            mods/saturn-atlas/client/build/libs/saturn-atlas-companion-0.2.0.jar
+            mods/saturn-atlas/client/build/libs/saturn-atlas-companion-0.2.1.jar
             mods/saturn-atlas/target/wasm32-wasip2/release/saturn_atlas.wasm
             mods/saturn-atlas/client/build/test-results/test/
   manager:

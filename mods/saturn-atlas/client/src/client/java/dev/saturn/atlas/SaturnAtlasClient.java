@@ -34,6 +34,8 @@ public final class SaturnAtlasClient implements ClientModInitializer {
     static void savePreferences(){try{preferences.save(preferencesFile);preferenceNotice="Saved locally";}catch(java.io.IOException e){preferenceNotice="Could not save HUD settings; changes apply this session only";}}
     static String describePlayer(){var c=Minecraft.getInstance();return c.player==null?"Not connected":model.describe(c.player.getX(),c.player.getZ(),c.player.getYRot());}
     static final AtlasHud hud=new AtlasHud();
+    static final AtlasRefreshPolicy refreshPolicy=new AtlasRefreshPolicy();
+    static void refreshMap(AtlasRefreshPolicy.Event reason){if(refreshPolicy.allow(reason,System.nanoTime()))request("atlas sync cache");}
     static KeyMapping createOpenKey(){return new KeyMapping("key.saturn_atlas.open",InputConstants.KEY_M,KeyMapping.Category.MISC);}
     /** Unbound by default. Minecraft 26.3 uses 0 for "no key"; -1 is read as a real key and crashes on mouse grab. */
     static KeyMapping createUnboundKey(String name){return new KeyMapping(name,InputConstants.UNKNOWN.getValue(),KeyMapping.Category.MISC);}
@@ -43,7 +45,7 @@ public final class SaturnAtlasClient implements ClientModInitializer {
         if(bound.getType()!=InputConstants.Type.KEYBOARD||bound.getValue()>=0)return false;
         mapping.setKey(InputConstants.UNKNOWN);return true;
     }
-    static void openMap(){Minecraft.getInstance().gui.setScreen(new AtlasScreen());request(model.syncCommand(true));}
+    static void openMap(){Minecraft.getInstance().gui.setScreen(new AtlasScreen());refreshMap(AtlasRefreshPolicy.Event.OPEN);}
     static void request(String command){model.request(System.nanoTime());var client=Minecraft.getInstance();if(client.getConnection()!=null)client.getConnection().sendCommand(command);else model.receive("{\"v\":1,\"error\":\"Not connected to a server\"}",System.nanoTime());}
     public record AtlasPayload(String json) implements CustomPacketPayload {
         public static final Type<AtlasPayload> TYPE=new Type<>(Identifier.fromNamespaceAndPath("saturn","atlas_v1"));
@@ -69,16 +71,16 @@ public final class SaturnAtlasClient implements ClientModInitializer {
             while(describeKey.consumeClick())if(client.player!=null&&client.gui.screen()==null)client.gui.setScreen(new AtlasDetailsScreen(null,-1));
             long now=System.nanoTime();
             model.tick(now);
-            if(hud.due(now,client.player!=null&&client.getConnection()!=null,model.snapshot!=null,client.gui.screen()==null||client.gui.screen() instanceof AtlasScreen))client.getConnection().sendCommand(model.syncCommand(client.gui.screen() instanceof AtlasScreen));
+            // No background polling: terrain changes only on map open or explicit Refresh.
         });
         HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("saturn","minimap"),(graphics,delta)->drawMinimap(graphics));
         PayloadTypeRegistry.clientboundPlay().register(AtlasPayload.TYPE,AtlasPayload.CODEC);
         ClientPlayNetworking.registerGlobalReceiver(AtlasPayload.TYPE,(payload,context)->context.client().execute(()->{
-            model.receive(payload.json(),System.nanoTime());hud.reply(System.nanoTime());
+            model.receive(payload.json(),System.nanoTime());if(model.cacheLoading||payload.json().contains("\"roster\""))return;
             if(Minecraft.getInstance().gui.screen() instanceof AtlasScreen screen)screen.rebuild();
             else if(Minecraft.getInstance().gui.screen() instanceof AtlasDetailsScreen screen)screen.rebuild();
         }));
-        ClientPlayConnectionEvents.DISCONNECT.register((handler,client)->{model.reset();hud.reset();});
+        ClientPlayConnectionEvents.DISCONNECT.register((handler,client)->{model.reset();hud.reset();refreshPolicy.reset();});
         ClientCommandRegistrationCallback.EVENT.register((dispatcher,access)->dispatcher.register(literal("saturnmap").executes(context->{Minecraft.getInstance().execute(()->{openMap();});return 1;})));
     }
 
@@ -95,11 +97,12 @@ public final class SaturnAtlasClient implements ClientModInitializer {
             points.stream().min(java.util.Comparator.comparingDouble(p->Math.hypot(p.x()-c.player.getX(),p.z()-c.player.getZ()))).ifPresent(p->g.text(c.font,c.font.plainSubstrByWidth(AtlasModel.describePoint(p,c.player.getX(),c.player.getZ()),textWidth),tx,ty+24,0xffedf5fa,true));
             g.text(c.font,c.font.plainSubstrByWidth(openHint()+": Atlas > Text for all points",textWidth),tx,ty+36,0xffedf5fa,true);return;
         }
-        var v=AtlasViewport.of(c.player.getX(),c.player.getZ(),r.w(),r.h(),s.zoom());int step=4*s.zoom();
+        var v=AtlasViewport.of(c.player.getX(),c.player.getZ(),r.w(),r.h(),1);int step=4*model.dataZoom(1);
         g.fill(r.x()-2,r.y()-2,r.right()+2,r.bottom()+2,0xee4a6d7a);g.fill(r.x(),r.y(),r.right(),r.bottom(),0xee172735);
         g.enableScissor(r.x(),r.y(),r.right(),r.bottom());
-        for(var t:s.tiles())for(int i=0;i<16;i++){if(t.pixels()[i]==0)continue;int px=r.x()+v.x((t.x()*4+i%4)*step),py=r.y()+v.z((t.z()*4+i/4)*step);int cell=(int)Math.ceil(step*v.scale());g.fill(px,py,px+cell,py+cell,AtlasScreen.color(t.pixels()[i]));}
+        for(var t:model.tilesAtZoom(1)){if((t.x()+1)*4.0*step<v.startX()||t.x()*4.0*step>v.startX()+r.w()/v.scale()||(t.z()+1)*4.0*step<v.startZ()||t.z()*4.0*step>v.startZ()+r.h()/v.scale())continue;for(int i=0;i<16;i++){if(t.pixels()[i]==0)continue;int px=r.x()+v.x((t.x()*4+i%4)*step),py=r.y()+v.z((t.z()*4+i/4)*step);int cell=(int)Math.ceil(step*v.scale());g.fill(px,py,px+cell,py+cell,AtlasScreen.color(t.pixels()[i]));}}
         for(var p:s.markers())AtlasScreen.point(g,p,r.x(),r.y(),v.startX(),v.startZ(),v.scale(),r.w(),r.h(),0xffffd56a);
+        for(var p:model.players(System.nanoTime()))AtlasScreen.otherPlayer(g,p,r.x(),r.y(),v.startX(),v.startZ(),v.scale(),r.w(),r.h());
         for(var p:s.anchors())AtlasScreen.point(g,p,r.x(),r.y(),v.startX(),v.startZ(),v.scale(),r.w(),r.h(),0xff8aeeff);
         int px=r.x()+v.x(c.player.getX()),py=r.y()+v.z(c.player.getZ());AtlasScreen.player(g,px,py);
         g.disableScissor();
@@ -150,10 +153,10 @@ public final class SaturnAtlasClient implements ClientModInitializer {
         AtlasDetailsScreen(Screen parent,int index){super("Atlas text map",parent);this.index=index;}
         java.util.List<AtlasModel.Point> points(){
             if(model.snapshot==null)return java.util.List.of();
-            var result=new java.util.ArrayList<AtlasModel.Point>(model.snapshot.anchors());result.addAll(model.snapshot.markers());return result;
+            var result=new java.util.ArrayList<AtlasModel.Point>(model.snapshot.anchors());result.addAll(model.snapshot.markers());result.addAll(model.players(System.nanoTime()));return result;
         }
         String current(){if(index<0)return describePlayer();var points=points();var c=Minecraft.getInstance();if(points.isEmpty()||c.player==null)return "No nearby points available. Open Atlas and Refresh.";
-            var p=points.get(Math.min(index,points.size()-1));String kind=model.snapshot.anchors().contains(p)?"Lodestone: ":"Marker: ";
+            var p=points.get(Math.min(index,points.size()-1));String kind=model.snapshot.anchors().contains(p)?"Lodestone: ":model.players(System.nanoTime()).contains(p)?"Player: ":"Marker: ";
             return kind+AtlasModel.describePoint(p,c.player.getX(),c.player.getZ());
         }
         @Override public Component getNarrationMessage(){return Component.literal((AtlasLayout.utilitySupported(width,height)?"Atlas text map. ":"View requires at least 240 by 150 GUI units. Lower GUI Scale or enlarge the window. ")+model.freshness(System.nanoTime())+". "+describePlayer()+" "+AtlasModel.pointPageLabel(index,points().size())+". "+current()+". Use Previous and Next to read every point.");}
@@ -175,7 +178,7 @@ public final class SaturnAtlasClient implements ClientModInitializer {
             var r=AtlasLayout.utilityControls(width,height,false);
             button("Previous page",r[0],()->navigate(-1)).active=index>=0;
             button("Next point",r[1],()->navigate(1)).active=index+1<points().size();
-            button("Refresh map",r[2],()->{request("atlas sync");scheduleNarration();});
+            button("Refresh map",r[2],()->{refreshMap(AtlasRefreshPolicy.Event.MANUAL);scheduleNarration();});
             button("Back",r[3],this::onClose);
         }
         @Override public void extractRenderState(GuiGraphicsExtractor g,int x,int y,float delta){
@@ -194,7 +197,7 @@ public final class SaturnAtlasClient implements ClientModInitializer {
             if(layout!=null&&layout.compact())summary+="Compact destination list. ";
             summary+=model.freshness(System.nanoTime())+". "+describePlayer();
             if(model.state!=AtlasModel.State.READY)summary+=model.state==AtlasModel.State.WAITING?"Requesting shared map. ":model.notice+". ";
-            if(model.snapshot!=null)summary+="Map view "+model.snapshot.span()+" blocks across. "+model.snapshot.anchors().size()+" accessible lodestones. Balance "+model.snapshot.balance()+" shards. "+model.travelHint(System.nanoTime());
+            if(model.snapshot!=null)summary+="Map view "+(144*model.zoom)+" blocks across. "+model.snapshot.anchors().size()+" accessible lodestones. Balance "+model.snapshot.balance()+" shards. "+model.travelHint(System.nanoTime());
             return Component.literal(summary);
         }
         @Override public boolean keyPressed(KeyEvent event){if(openKey!=null&&openKey.matches(event)){onClose();return true;}return super.keyPressed(event);}
@@ -211,10 +214,10 @@ public final class SaturnAtlasClient implements ClientModInitializer {
         }
         @Override protected void init(){
             focusKeys.clear();quote=null;confirm=null;layout=AtlasLayout.of(width,height);
-            add("Refresh",layout.refresh(),()->request(model.syncCommand(true)));
+            add("Refresh",layout.refresh(),()->refreshMap(AtlasRefreshPolicy.Event.MANUAL));
             zoomOut=zoomIn=recenter=null;
             if(!layout.compact()){
-                recenter=add("Center","Center the map on you again",layout.recenter(),()->{model.recenter();request(model.syncCommand(true));rebuild();});
+                recenter=add("Center","Center the map on you again",layout.recenter(),()->{model.recenter();rebuild();});
                 zoomOut=add("-","Zoom out: show a wider area",layout.zoomOut(),()->zoom(1));
                 zoomIn=add("+","Zoom in: show a closer area",layout.zoomIn(),()->zoom(-1));
             }
@@ -237,7 +240,7 @@ public final class SaturnAtlasClient implements ClientModInitializer {
             add("Close",layout.close(),this::onClose);
             controls();
         }
-        void zoom(int direction){if(model.zoomBy(direction)){request(model.syncCommand(true));rebuild();}}
+        void zoom(int direction){if(model.zoomBy(direction))rebuild();}
         @Override public boolean mouseScrolled(double mouseX,double mouseY,double scrollX,double scrollY){
             if(layout!=null&&!layout.compact()&&scrollY!=0&&mouseX>=layout.map().x()&&mouseX<layout.map().right()&&mouseY>=layout.map().y()&&mouseY<layout.map().bottom()){zoom(scrollY<0?1:-1);return true;}
             return super.mouseScrolled(mouseX,mouseY,scrollX,scrollY);
@@ -251,21 +254,18 @@ public final class SaturnAtlasClient implements ClientModInitializer {
         }
         @Override public boolean mouseDragged(MouseButtonEvent event,double dx,double dy){
             if(!draggingMap||model.snapshot==null)return super.mouseDragged(event,dx,dy);
-            double scale=AtlasViewport.centered(0,0,layout.map().w(),layout.map().h(),model.snapshot.zoom()).scale();
+            double scale=AtlasViewport.centered(0,0,layout.map().w(),layout.map().h(),model.zoom).scale();
             if(model.panBy(-dx/scale,-dy/scale)){
-                // Fetch the terrain under the new view while dragging, at most a few times a second.
-                long now=System.nanoTime();
-                if(model.viewOutdated()&&now-lastPanRequest>300_000_000L){lastPanRequest=now;request(model.syncCommand(true));}
                 controls();
             }
             return true;
         }
         @Override public boolean mouseReleased(MouseButtonEvent event){
-            if(draggingMap&&event.button()==0){draggingMap=false;if(model.viewOutdated()){lastPanRequest=System.nanoTime();request(model.syncCommand(true));}return true;}
+            if(draggingMap&&event.button()==0){draggingMap=false;return true;}
             return super.mouseReleased(event);
         }
-        /** Leaving the map returns the minimap to the closest view without waiting for its next poll. */
-        @Override public void removed(){super.removed();var c=Minecraft.getInstance();boolean moved=model.panned;model.recenter();if(model.snapshot!=null&&(model.snapshot.zoom()>1||moved)&&c.getConnection()!=null)c.getConnection().sendCommand("atlas sync");}
+        /** Closing only changes local view state; it never sends a sync command. */
+        @Override public void removed(){super.removed();model.recenter();}
         void controls(){
             if(recenter!=null){recenter.active=model.panned;recenter.setTooltip(Tooltip.create(Component.literal(!model.canPan()&&model.snapshot!=null?"This server does not support dragging the map yet":model.panned?"Center the map on you again":"Drag the map to look around; this brings it back to you")));}
             if(zoomOut!=null){zoomOut.active=model.canZoomOut();zoomOut.setTooltip(Tooltip.create(Component.literal(model.maxZoom()==1?"This server does not offer wider map views yet":model.canZoomOut()?"Zoom out: show a wider area (or scroll down over the map)":"Widest view")));}
@@ -294,19 +294,20 @@ public final class SaturnAtlasClient implements ClientModInitializer {
             g.fill(left-1,top-1,map.right()+1,map.bottom()+1,0xff53737f);g.fill(left,top,map.right(),map.bottom(),0xff172735);
             g.text(font,"LODESTONES",layout.sidebar().x(),27,0xffa8edf0,false);
             if(model.snapshot!=null){
-                var s=model.snapshot;var view=model.panned?AtlasViewport.centered(model.viewX,model.viewZ,map.w(),map.h(),s.zoom()):AtlasViewport.of(s.x(),s.z(),map.w(),map.h(),s.zoom());int step=4*s.zoom();
+                var s=model.snapshot;var view=model.panned?AtlasViewport.centered(model.viewX,model.viewZ,map.w(),map.h(),model.zoom):AtlasViewport.of(s.x(),s.z(),map.w(),map.h(),model.zoom);int step=4*model.dataZoom(model.zoom);
                 double startX=view.startX(),startZ=view.startZ(),scale=view.scale();
                 g.enableScissor(left,top,map.right(),map.bottom());
-                for(var t:s.tiles()){for(int i=0;i<16;i++){if(t.pixels()[i]==0)continue;int px=(int)Math.floor(((t.x()*4+i%4)*step-startX)*scale),py=(int)Math.floor(((t.z()*4+i/4)*step-startZ)*scale);g.fill(left+px,top+py,Math.min(map.right(),left+px+(int)Math.ceil(step*scale)),Math.min(map.bottom(),top+py+(int)Math.ceil(step*scale)),color(t.pixels()[i]));}}
+                for(var t:model.tilesAtZoom(model.zoom)){if((t.x()+1)*4.0*step<startX||t.x()*4.0*step>startX+map.w()/scale||(t.z()+1)*4.0*step<startZ||t.z()*4.0*step>startZ+map.h()/scale)continue;for(int i=0;i<16;i++){if(t.pixels()[i]==0)continue;int px=(int)Math.floor(((t.x()*4+i%4)*step-startX)*scale),py=(int)Math.floor(((t.z()*4+i/4)*step-startZ)*scale);g.fill(left+px,top+py,Math.min(map.right(),left+px+(int)Math.ceil(step*scale)),Math.min(map.bottom(),top+py+(int)Math.ceil(step*scale)),color(t.pixels()[i]));}}
                 for(var p:s.markers())point(g,p,left,top,startX,startZ,scale,map.w(),map.h(),0xffffd56a);
+                for(var p:model.players(System.nanoTime()))otherPlayer(g,p,left,top,startX,startZ,scale,map.w(),map.h());
                 for(var p:s.anchors())point(g,p,left,top,startX,startZ,scale,map.w(),map.h(),0xff8aeeff);
                 int px=left+(int)((s.x()-startX)*scale),py=top+(int)((s.z()-startZ)*scale);if(px>=-5&&py>=-5&&px<map.w()+left+5&&py<map.h()+top+5)player(g,px,py);
                 g.disableScissor();
                 g.fill(map.right()-14,top+3,map.right()-3,top+15,0xee111b28);
                 g.text(font,"N",map.right()-11,top+5,0xffffffff,true);
-                String span="View: "+s.span()+" blocks"+(model.panned?" | centre "+(int)Math.floor(model.viewX)+", "+(int)Math.floor(model.viewZ):model.canPan()?" | drag to look around":"");g.fill(left+3,top+3,left+9+font.width(span),top+15,0xee111b28);g.text(font,span,left+6,top+5,0xffedf5fa,true);
+                String span="View: "+(144*model.zoom)+" blocks"+(model.panned?" | centre "+(int)Math.floor(model.viewX)+", "+(int)Math.floor(model.viewZ):model.canPan()?" | drag to look around":"");g.fill(left+3,top+3,left+9+font.width(span),top+15,0xee111b28);g.text(font,span,left+6,top+5,0xffedf5fa,true);
                 g.fill(left+3,map.bottom()-14,map.right()-3,map.bottom()-2,0xee111b28);
-                g.text(font,font.plainSubstrByWidth("+ You   [] Stone   <> Marker",size-12),left+6,map.bottom()-12,0xffedf5fa,true);
+                g.text(font,font.plainSubstrByWidth("+ You   Green: players   [] Stone   <> Marker",size-12),left+6,map.bottom()-12,0xffedf5fa,true);
                 if(s.anchors().isEmpty())lines(g,"No lodestones yet. Place a lodestone and it appears here for everyone; right-click it to rename.",layout.sidebar().x(),42,layout.sidebar().w(),4,0xffbac7d5);
                 drawPageCount(g,s);
                 String cost=model.travelHint(System.nanoTime());
@@ -324,6 +325,11 @@ public final class SaturnAtlasClient implements ClientModInitializer {
         void drawPageCount(GuiGraphicsExtractor g,AtlasModel.Snapshot s){
             int rows=Math.max(1,(layout.sidebar().h()-24)/23);
             if(!(layout.compact()&&height<160)&&s.anchors().size()>rows)g.text(font,(page+1)+"/"+((s.anchors().size()+rows-1)/rows),layout.sidebar().x()+54,layout.sidebar().bottom()-14,0xffedf5fa,false);
+        }
+        static void otherPlayer(GuiGraphicsExtractor g,AtlasModel.Point p,int left,int top,double sx,double sz,double scale,int w,int h){
+            int x=(int)Math.floor((p.x()-sx)*scale),y=(int)Math.floor((p.z()-sz)*scale);if(x<4||y<4||x>=w-4||y>=h-4)return;
+            g.fill(left+x-4,top+y-4,left+x+5,top+y+5,0xff111b28);g.fill(left+x-2,top+y-2,left+x+3,top+y+3,0xff8cff9e);
+            var font=Minecraft.getInstance().font;String name=font.plainSubstrByWidth(p.name(),Math.max(0,w-x-6));if(!name.isEmpty())g.text(font,name,left+x+6,top+y-3,0xff8cff9e,true);
         }
         static void player(GuiGraphicsExtractor g,int x,int y){g.fill(x-4,y-1,x+5,y+2,0xff111b28);g.fill(x-1,y-4,x+2,y+5,0xff111b28);g.fill(x-3,y,x+4,y+1,0xffffffff);g.fill(x,y-3,x+1,y+4,0xffffffff);}
         static int color(int p){return switch(p){case 6->0xff77a84d;case 10->0xffd9ce92;case 34->0xffe5eff3;case 42->0xff8a6849;case 50->0xff466dae;case 18->0xffd16835;default->0xff8b8d91;};}
