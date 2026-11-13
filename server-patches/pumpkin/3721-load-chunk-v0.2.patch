@@ -25,13 +25,13 @@ index 84892ea..e783c6f 100644
          "pumpkin:plugin/datapack@0.2.0.[method]datapack-manager.disable-pack": async | store | trappable,
          "pumpkin:plugin/datapack@0.2.0.[method]datapack-manager.enable-pack": async | store | trappable,
 diff --git a/crates/pumpkin-wasm-host-v0_2/src/world.rs b/crates/pumpkin-wasm-host-v0_2/src/world.rs
-index b2e0c90..c00810d 100644
+index b2e0c90..4d43bbd 100644
 --- a/crates/pumpkin-wasm-host-v0_2/src/world.rs
 +++ b/crates/pumpkin-wasm-host-v0_2/src/world.rs
-@@ -665,6 +665,42 @@ impl pumpkin::plugin::world::HostWorld for PluginHostState {
-         }
-     }
+@@ -1245,6 +1245,42 @@ impl pumpkin::plugin::world::HostWorld for PluginHostState {
+ }
  
+ impl pumpkin::plugin::world::HostWorldWithStore<PluginHostState> for HasSelf<PluginHostState> {
 +    // Adapted from Pumpkin-MC/Pumpkin PR3721, commit 5a28128648777ec5b71c23f498e66f0c6227701a.
 +    async fn load_chunk(
 +        accessor: &Accessor<PluginHostState, Self>,
@@ -68,6 +68,6 @@ index b2e0c90..c00810d 100644
 +        })
 +    }
 +
-     fn get_block_state_id(
-         &mut self,
+     async fn set_raining(
+         accessor: &Accessor<PluginHostState, Self>,
          world: Resource<World>,

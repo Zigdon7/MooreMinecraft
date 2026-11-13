@@ -20,6 +20,8 @@ approves promoting this patched engine + guest after isolated tests and a fresh 
 No additional capabilities, world reset or unrelated engine upgrade is authorized.
 
 ## Combined candidate (2026-11-13)
-Native source commit `fd87921` (base eda6944 + PR4373 + PR3721 adaptation + exact protected eyeblossom mitigation). Source preflight passes. Optimized build: `CARGO_INCREMENTAL=0 cargo build --locked -p pumpkin -j1 --release --config 'profile.release.lto=false' --config 'profile.release.codegen-units=16'` with the documented user-owned Zig wrappers.
+Native source commit `9683333` (base eda6944 + PR4373 + PR3721 adaptation + exact protected eyeblossom mitigation). Source preflight passes. Optimized build: `CARGO_INCREMENTAL=0 cargo build --locked -p pumpkin -j1 --release --config 'profile.release.lto=false' --config 'profile.release.codegen-units=16'` with the documented user-owned Zig wrappers.
 
 Atlas guest 0.2.4 is merged with the released client 0.2.1 manual-cache/player-presence changes; all 27 Rust and 57 Java tests pass. Separate host/guest is still not live until runtime probe succeeds. Candidate runtime uses disposable loopback 25569, zero players, positive/negative marker chunks, unload/reload persistence, duplicate lease expiry, and console `atlas preflight` for lodestone/footing validation without moving/debiting a player. Do not install the destructive test probe in production. Keep the original binary and current 0.2.3 WASM together for rollback; 0.2.4 will not run on stock Pumpkin.
+
+Native async adaptation review: load-chunk belongs in generated `HostWorldWithStore`, not the synchronous `HostWorld` trait. Corrected in 9683333 before that host crate compiled; portable patch regenerated.
